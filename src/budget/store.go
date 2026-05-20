@@ -108,6 +108,18 @@ func (s *Store) GetTreeByName(name string) *Tree {
 	return nil
 }
 
+// GetTreeByID 按 ID 查找预算包
+func (s *Store) GetTreeByID(id string) *Tree {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, t := range s.trees {
+		if t.ID == id {
+			return t
+		}
+	}
+	return nil
+}
+
 func (s *Store) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

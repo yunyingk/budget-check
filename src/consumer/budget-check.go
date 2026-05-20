@@ -28,13 +28,15 @@ type Checker struct {
 	SignKey        string
 	ExpenseNature  map[string]string
 	ExemptProjects map[string]bool
+	CostCenterID   string // 成本中心预算包 ID
+	ProjectID      string // 项目预算包 ID
 	History        []HistoryItem
 	HistoryMax     int
 	mu             sync.Mutex
 }
 
 // NewChecker 创建校验器
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expenseNature map[string]string, exemptProjects []string) *Checker {
+func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expenseNature map[string]string, exemptProjects []string, costCenterID, projectID string) *Checker {
 	exempt := make(map[string]bool, len(exemptProjects))
 	for _, id := range exemptProjects {
 		exempt[id] = true
@@ -45,6 +47,8 @@ func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expense
 		SignKey:        signKey,
 		ExpenseNature:  expenseNature,
 		ExemptProjects: exempt,
+		CostCenterID:   costCenterID,
+		ProjectID:      projectID,
 		HistoryMax:     50,
 	}
 }
@@ -74,10 +78,12 @@ func (c *Checker) Process(task types.Task) {
 	form, details, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
+		c.AddHistory(task.Code, "error", fmt.Sprintf("获取单据失败: %v", err))
 		return
 	}
 	if form == nil {
 		log.Printf("[Consumer] 单据 %s 未找到", task.Code)
+		c.AddHistory(task.Code, "error", "单据未找到")
 		return
 	}
 
@@ -116,25 +122,39 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 		return "refuse", "缺少成本中心"
 	}
 
-	tree := c.Store.GetTreeByName("2026成本中心预算")
+	tree := c.Store.GetTreeByID(c.CostCenterID)
 	if tree == nil {
 		return "refuse", "成本中心预算包未同步"
 	}
 
-	ccNode, ok := tree.Root[costCenter]
-	if !ok {
+	// 把树的 Root keys 提取成 set
+	rootSet := make(map[string]bool, len(tree.Root))
+	for k := range tree.Root {
+		rootSet[k] = true
+	}
+
+	// 向上查找祖先是否在预算树中
+	foundID, found := c.Client.FindAncestorInTree(costCenter, rootSet, 5)
+	if !found {
 		return "refuse", "成本中心不在预算内"
 	}
 
-	var feeTypeBudget map[string]*budget.Node
-	for _, child := range ccNode.Children {
-		feeTypeBudget = child.Children
-		break
-	}
+	_ = foundID // 命中的祖先 ID
+	log.Printf("[Consumer] 成本中心 %s 命中祖先 %s", costCenter, foundID)
 
 	if len(details) == 0 {
 		return "accept", "成本中心在预算内"
 	}
+
+	// 取命中节点下所有预算管控的费用档案
+	ccNode := tree.Root[foundID]
+	feeTypeBudget := make(map[string]*budget.Node)
+	for _, child := range ccNode.Children {
+		for k, v := range child.Children {
+			feeTypeBudget[k] = v
+		}
+	}
+	log.Printf("[Consumer] 费用档案总数: %d", len(feeTypeBudget))
 
 	var missing []string
 	for i, detail := range details {
@@ -147,7 +167,12 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 			continue
 		}
 		if feeTypeBudget != nil {
-			if _, ok := feeTypeBudget[feeType]; ok {
+			ftSet := make(map[string]bool, len(feeTypeBudget))
+			for k := range feeTypeBudget {
+				ftSet[k] = true
+			}
+			_, found := c.Client.FindAncestorInTree(feeType, ftSet, 5)
+			if found {
 				continue
 			}
 		}
@@ -170,25 +195,39 @@ func (c *Checker) checkProduction(costCenter, project string, details []map[stri
 		return c.checkBusinessOrManage(costCenter, details)
 	}
 
-	tree := c.Store.GetTreeByName("项目预算包")
+	tree := c.Store.GetTreeByID(c.ProjectID)
 	if tree == nil {
 		return "refuse", "项目预算包未同步"
 	}
 
-	projectNode, ok := tree.Root[project]
-	if !ok {
+	// 向上查找项目是否在预算树中
+	projectSet := make(map[string]bool, len(tree.Root))
+	for k := range tree.Root {
+		projectSet[k] = true
+	}
+	foundProjectID, found := c.Client.FindAncestorInTree(project, projectSet, 5)
+	if !found {
 		return "refuse", "项目不在预算内"
 	}
 
+	// 项目下有成本中心子预算时，必须命中
+	projectNode := tree.Root[foundProjectID]
 	if len(projectNode.Children) > 0 {
 		if costCenter == "" {
 			return "refuse", "项目要求成本中心但未填写"
 		}
-		if _, ok := projectNode.Children[costCenter]; !ok {
+		// 成本中心也要向上查找
+		ccSet := make(map[string]bool, len(projectNode.Children))
+		for k := range projectNode.Children {
+			ccSet[k] = true
+		}
+		_, ccFound := c.Client.FindAncestorInTree(costCenter, ccSet, 5)
+		if !ccFound {
 			return "refuse", "成本中心不在项目预算内"
 		}
 	}
 
+	// 再查成本中心预算包
 	action, comment := c.checkBusinessOrManage(costCenter, details)
 	if action == "refuse" {
 		return action, comment

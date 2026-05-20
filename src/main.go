@@ -88,7 +88,17 @@ func initComponents() {
 		targets = append(targets, budget.Target{ID: t.ID, Name: t.Name, Depth: t.Depth})
 	}
 	syncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
-	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature, cfg.ExemptProjects)
+
+	// 从配置取预算包 ID（第一个=成本中心，第二个=项目）
+	costCenterID := ""
+	projectID := ""
+	if len(cfg.BudgetTargets) >= 1 {
+		costCenterID = cfg.BudgetTargets[0].ID
+	}
+	if len(cfg.BudgetTargets) >= 2 {
+		projectID = cfg.BudgetTargets[1].ID
+	}
+	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature, cfg.ExemptProjects, costCenterID, projectID)
 }
 
 func mainLogic() {
