@@ -4,19 +4,45 @@
 
 ## 部署
 
-1. 编译 Windows 可执行文件：
-   ```bash
-   GOOS=windows GOARCH=amd64 go build -o budget-check.exe ./src
-   ```
+### 1. 编译
 
-2. 将 `budget-check.exe` 和 `config.yaml` 放到目标机器同一目录
+```bash
+GOOS=windows GOARCH=amd64 go build -o budget-check.exe ./src
+```
 
-3. 用 nssm 注册为 Windows 服务：
-   ```bat
-   nssm install BudgetAPI C:\BudgetProject\budget-check.exe
-   nssm set BudgetAPI AppDirectory C:\BudgetProject
-   nssm start BudgetAPI
-   ```
+### 2. 部署到目标机器
+
+将以下文件放到同一目录（如 `C:\BudgetProject\`）：
+- `budget-check.exe`
+- `config.yaml`
+- `install.bat`（见下方）
+
+### 3. 一键安装为 Windows 服务
+
+双击 `install.bat` 即可注册并启动服务：
+
+```bat
+@echo off
+nssm install BudgetAPI "%~dp0budget-check.exe"
+nssm set BudgetAPI AppDirectory "%~dp0"
+nssm set BudgetAPI AppStdout "%~dp0logs\service.log"
+nssm set BudgetAPI AppStderr "%~dp0logs\service.log"
+nssm start BudgetAPI
+echo 服务已安装并启动
+pause
+```
+
+卸载服务：
+
+```bat
+@echo off
+nssm stop BudgetAPI
+nssm remove BudgetAPI confirm
+echo 服务已卸载
+pause
+```
+
+> 需要先安装 [nssm](https://nssm.cc/)，或者用 `sc` 命令（Windows 自带，但功能有限）。
 
 ## 配置
 
@@ -63,16 +89,44 @@
 }
 ```
 
+## 校验规则
+
+### 费用性质分支
+
+| 费用性质 | 校验逻辑 |
+|---------|---------|
+| 业务/管理 | 成本中心预算包：成本中心 + 明细费用档案 |
+| 生产（非豁免） | 项目预算包 + 成本中心预算包（两个都命中） |
+| 生产（豁免） | 同业务/管理 |
+| 未知 | 直接拒绝 |
+
+### 成本中心预算包结构
+
+```
+成本中心预算包
+├── 成本中心 (level 1) ← 校验
+│   └── 预算管控 (level 2) ← 跳过（只有一个固定值）
+│       └── 费用档案 (level 3) ← 从明细逐条校验
+```
+
+### 项目预算包结构
+
+```
+项目预算包
+├── 项目 (level 1) ← 校验
+│   └── 成本中心 (level 2) ← 如果存在则校验，不存在则跳过
+```
+
 ## 手动同步
 
 ```bash
-./budget-check -sync -config config.yaml
+./budget-check.exe -sync -config config.yaml
 ```
 
 ## 架构
 
 ```
-HTTP请求 → webhook.Handle() → 入队 → consumer.Process() → 业务处理
+HTTP请求 → webhook.Handle() → 入队 → consumer.Process() → 审批回调
 ```
 
 - 服务启动即可接收请求入队
