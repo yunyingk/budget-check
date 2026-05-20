@@ -125,7 +125,10 @@ func mainLogic() {
 				http.NotFound(w, r)
 				return
 			}
-			handleHome(w, r, store, cfg)
+			handleHome(w, r, cfg)
+		})
+		mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
+			handleHistory(w, r, checker)
 		})
 		log.Println("[Web] 管理页面已启用: http://localhost" + fmt.Sprintf(":%d", cfg.Server.Port))
 	}

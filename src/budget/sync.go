@@ -66,10 +66,8 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 		}
 
 		log.Printf("[Sync] 同步: %s (深度: %d)", bName, targetDepth)
-
-		tree := buildTree(bID, bName, client, token, cfg.Workers, targetDepth)
-		store.AddTree(tree)
-		log.Printf("    -> %s 完成, 维度条目: %d", bName, store.Count())
+		buildTree(store, bID, bName, client, token, cfg.Workers, targetDepth)
+		log.Printf("    -> %s 完成, 当前总条目: %d", bName, store.Count())
 	}
 
 	log.Printf("[Sync] 同步完成! 耗时: %v, 总维度条目: %d", time.Since(start), store.Count())
@@ -79,13 +77,13 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 type rawNode struct {
 	nodeID   string
 	nodeName string
-	dimCode  string // contentId，用于树节点索引
-	dimType  string // dimensionType，原样存储
+	dimCode  string
+	dimType  string
 	isLeaf   bool
 }
 
-// buildTree 从根节点开始逐层构建预算包树
-func buildTree(bID, bName string, client *ekb.Client, token string, workers, maxDepth int) *Tree {
+// buildTree 从根节点开始逐层构建预算包树，边建边往 store 索引里写
+func buildTree(store *Store, bID, bName string, client *ekb.Client, token string, workers, maxDepth int) {
 	tree := &Tree{
 		ID:   bID,
 		Name: bName,
@@ -101,17 +99,18 @@ func buildTree(bID, bName string, client *ekb.Client, token string, workers, max
 	rootNodes, _, total, err := fetchNodes(client, queryURL, "", token, workers)
 	if err != nil {
 		log.Printf("    [Error] 拉取根节点失败: %v", err)
-		return tree
+		return
 	}
 	if total > 0 {
 		log.Printf("    根节点子项总量: %d", total-1)
 	}
 
 	if len(rootNodes) == 0 {
-		return tree
+		return
 	}
 
 	tree.MaxDepth = maxDepth
+	store.addTreeRef(tree)
 
 	type drillTask struct {
 		parent map[string]*Node
@@ -129,16 +128,18 @@ func buildTree(bID, bName string, client *ekb.Client, token string, workers, max
 			Children: make(map[string]*Node),
 		}
 		tree.Root[rn.dimCode] = node
+		store.indexNode(rn.dimCode, node, tree)
 		if !rn.isLeaf && maxDepth > 1 {
 			pendingDrills = append(pendingDrills, drillTask{parent: node.Children, nodeID: rn.nodeID, depth: 1})
 		}
 	}
+	log.Printf("    [Layer 1] 根节点 %d 个, 当前总条目: %d", len(rootNodes), store.Count())
 
 	for depth := 1; depth < maxDepth; depth++ {
 		if len(pendingDrills) == 0 {
 			break
 		}
-		log.Printf("    [Layer %d] 钻取 %d 个节点...", depth+1, len(pendingDrills))
+		log.Printf("    [Layer %d] 钻取 %d 个节点... 当前总条目: %d", depth+1, len(pendingDrills), store.Count())
 
 		type drillResult struct {
 			parent   map[string]*Node
@@ -182,6 +183,7 @@ func buildTree(bID, bName string, client *ekb.Client, token string, workers, max
 					Children: make(map[string]*Node),
 				}
 				res.parent[rn.dimCode] = node
+				store.indexNode(rn.dimCode, node, tree)
 				if !rn.isLeaf && res.task.depth+1 < maxDepth {
 					nextDrills = append(nextDrills, drillTask{parent: node.Children, nodeID: rn.nodeID, depth: res.task.depth + 1})
 				}
@@ -190,8 +192,6 @@ func buildTree(bID, bName string, client *ekb.Client, token string, workers, max
 
 		pendingDrills = nextDrills
 	}
-
-	return tree
 }
 
 // fetchBudgetList 获取预算包列表

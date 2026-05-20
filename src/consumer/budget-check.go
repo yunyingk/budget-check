@@ -9,15 +9,28 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 )
+
+// HistoryItem 处理历史
+type HistoryItem struct {
+	Time    string `json:"time"`
+	Code    string `json:"code"`
+	Action  string `json:"action"`
+	Comment string `json:"comment"`
+}
 
 // Checker 校验器，持有共享依赖
 type Checker struct {
 	Client         *ekb.Client
 	Store          *budget.Store
 	SignKey        string
-	ExpenseNature  map[string]string // 费用性质 ID → 中文名
-	ExemptProjects map[string]bool   // 豁免项目 ID 集合
+	ExpenseNature  map[string]string
+	ExemptProjects map[string]bool
+	History        []HistoryItem
+	HistoryMax     int
+	mu             sync.Mutex
 }
 
 // NewChecker 创建校验器
@@ -32,14 +45,32 @@ func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expense
 		SignKey:        signKey,
 		ExpenseNature:  expenseNature,
 		ExemptProjects: exempt,
+		HistoryMax:     50,
 	}
+}
+
+func (c *Checker) AddHistory(code, action, comment string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	item := HistoryItem{Time: time.Now().Format("15:04:05"), Code: code, Action: action, Comment: comment}
+	c.History = append([]HistoryItem{item}, c.History...)
+	if len(c.History) > c.HistoryMax {
+		c.History = c.History[:c.HistoryMax]
+	}
+}
+
+func (c *Checker) GetHistory() []HistoryItem {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	result := make([]HistoryItem, len(c.History))
+	copy(result, c.History)
+	return result
 }
 
 // Process 处理校验任务
 func (c *Checker) Process(task types.Task) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
-	// 1. 获取单据详情
 	form, details, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
@@ -50,19 +81,15 @@ func (c *Checker) Process(task types.Task) {
 		return
 	}
 
-	// 2. 提取表头字段
 	natureID, _ := form["u_费用性质"].(string)
 	costCenter, _ := form["E_system_costcenter"].(string)
 	project, _ := form["项目"].(string)
-
 	natureName := c.ExpenseNature[natureID]
+
 	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 成本中心=%s 项目=%s 明细数=%d",
 		task.Code, natureID, natureName, costCenter, project, len(details))
 
-	// 3. 按费用性质分支校验
-	var action string
-	var comment string
-
+	var action, comment string
 	switch natureName {
 	case "业务", "管理":
 		action, comment = c.checkBusinessOrManage(costCenter, details)
@@ -74,8 +101,8 @@ func (c *Checker) Process(task types.Task) {
 	}
 
 	log.Printf("[Consumer] 校验结果: taskID=%s action=%s comment=%s", task.ID, action, comment)
+	c.AddHistory(task.Code, action, comment)
 
-	// 4. 回调审批
 	if err := c.callbackApproval(task.FlowID, task.NodeID, action, comment); err != nil {
 		log.Printf("[Consumer] 回调审批失败: %v", err)
 		return
@@ -84,8 +111,6 @@ func (c *Checker) Process(task types.Task) {
 	log.Printf("[Consumer] 处理完成: taskID=%s", task.ID)
 }
 
-// checkBusinessOrManage 业务/管理费用：查成本中心预算包
-// 三层结构：成本中心 → 预算管控(跳过) → 费用档案
 func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]interface{}) (string, string) {
 	if costCenter == "" {
 		return "refuse", "缺少成本中心"
@@ -93,24 +118,20 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 
 	tree := c.Store.GetTreeByName("2026成本中心预算")
 	if tree == nil {
-		log.Printf("[Consumer] 成本中心预算包未找到")
 		return "refuse", "成本中心预算包未同步"
 	}
 
-	// 第一层：查成本中心
 	ccNode, ok := tree.Root[costCenter]
 	if !ok {
 		return "refuse", "成本中心不在预算内"
 	}
 
-	// 第二层：预算管控（只有一个子节点，跳过，直接取它的 children）
 	var feeTypeBudget map[string]*budget.Node
 	for _, child := range ccNode.Children {
-		feeTypeBudget = child.Children // 预算管控下的费用档案
+		feeTypeBudget = child.Children
 		break
 	}
 
-	// 第三层：遍历明细，查每条的费用档案
 	if len(details) == 0 {
 		return "accept", "成本中心在预算内"
 	}
@@ -125,14 +146,12 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 		if feeType == "" {
 			continue
 		}
-
-		// 在预算管控的子节点中查找费用档案
 		if feeTypeBudget != nil {
 			if _, ok := feeTypeBudget[feeType]; ok {
-				continue // 找到，通过
+				continue
 			}
 		}
-		missing = append(missing, fmt.Sprintf("明细%d费用档案(%s)", i+1, feeType))
+		missing = append(missing, fmt.Sprintf("明细%d(%s)", i+1, feeType))
 	}
 
 	if len(missing) > 0 {
@@ -142,22 +161,15 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 	return "accept", "成本中心+费用档案在预算内"
 }
 
-// checkProduction 生产费用：先查项目预算包的项目，再查项目下的成本中心
-// 豁免项目：跳过项目校验，走业务/管理逻辑（成本中心+费用档案）
-// 非豁免：两个预算包都要命中
 func (c *Checker) checkProduction(costCenter, project string, details []map[string]interface{}) (string, string) {
 	if project == "" {
 		return "refuse", "生产费用缺少项目"
 	}
 
-	// 豁免项目：走和业务/管理一样的逻辑
 	if c.ExemptProjects[project] {
 		return c.checkBusinessOrManage(costCenter, details)
 	}
 
-	// === 非豁免：两个预算包都要命中 ===
-
-	// 第一个预算包：项目预算包
 	tree := c.Store.GetTreeByName("项目预算包")
 	if tree == nil {
 		return "refuse", "项目预算包未同步"
@@ -168,7 +180,6 @@ func (c *Checker) checkProduction(costCenter, project string, details []map[stri
 		return "refuse", "项目不在预算内"
 	}
 
-	// 项目下有成本中心子预算时，必须命中
 	if len(projectNode.Children) > 0 {
 		if costCenter == "" {
 			return "refuse", "项目要求成本中心但未填写"
@@ -178,7 +189,6 @@ func (c *Checker) checkProduction(costCenter, project string, details []map[stri
 		}
 	}
 
-	// 第二个预算包：成本中心预算包（和业务/管理一样的逻辑）
 	action, comment := c.checkBusinessOrManage(costCenter, details)
 	if action == "refuse" {
 		return action, comment
@@ -187,7 +197,6 @@ func (c *Checker) checkProduction(costCenter, project string, details []map[stri
 	return "accept", "项目+成本中心+费用档案全部在预算内"
 }
 
-// fetchFlowData 获取单据表单和明细
 func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[string]interface{}, error) {
 	u := c.Client.HostURL("/api/openapi/v1.1/flowDetails/byCode?code=" + code)
 	resp, err := c.Client.Get(u)
@@ -209,7 +218,6 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[stri
 		return nil, nil, nil
 	}
 
-	// 提取明细
 	var details []map[string]interface{}
 	if rawDetails, ok := form["details"].([]interface{}); ok {
 		for _, d := range rawDetails {
@@ -222,7 +230,6 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[stri
 	return form, details, nil
 }
 
-// callbackApproval 回调审批系统
 func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error {
 	token, err := c.Client.GetToken()
 	if err != nil {

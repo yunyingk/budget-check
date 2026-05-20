@@ -56,6 +56,22 @@ func (s *Store) AddTree(tree *Tree) {
 	s.updatedAt = time.Now()
 }
 
+// addTreeRef 只添加树引用，不建索引（buildTree 边建边调 indexNode）
+func (s *Store) addTreeRef(tree *Tree) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trees = append(s.trees, tree)
+	s.updatedAt = time.Now()
+}
+
+// indexNode 单独往索引里写一个节点
+func (s *Store) indexNode(dimCode string, node *Node, tree *Tree) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.index[dimCode] = node
+	s.treeOf[dimCode] = tree
+}
+
 func (s *Store) buildIndex(node *Node, tree *Tree) {
 	for dimCode, child := range node.Children {
 		s.index[dimCode] = child
@@ -98,6 +114,18 @@ func (s *Store) Clear() {
 	s.trees = make([]*Tree, 0)
 	s.index = make(map[string]*Node)
 	s.treeOf = make(map[string]*Tree)
+}
+
+// Replace 原子替换整个 store（同步用）
+func (s *Store) Replace(newStore *Store) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	newStore.mu.RLock()
+	defer newStore.mu.RUnlock()
+	s.trees = newStore.trees
+	s.index = newStore.index
+	s.treeOf = newStore.treeOf
+	s.updatedAt = newStore.updatedAt
 }
 
 func (s *Store) Count() int {
