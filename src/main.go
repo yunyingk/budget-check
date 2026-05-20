@@ -70,6 +70,17 @@ func main() {
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, store)
 	})
+	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
+		if cfg.Sync.Password == "" {
+			http.Error(w, "disabled", 404)
+			return
+		}
+		if r.URL.Query().Get("password") != cfg.Sync.Password {
+			writeJSON(w, 403, map[string]string{"error": "密码错误"})
+			return
+		}
+		writeJSON(w, 200, cfg)
+	})
 	mux.HandleFunc("/api/sync", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", 405)
