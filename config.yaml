@@ -52,3 +52,9 @@ logging:
   level: "info"           # debug / info / warn / error
   rotation: "daily"       # 日志轮转周期: daily(每天) / weekly(每周) / monthly(每月)
   # 文件命名示例: daily=2026-05-20.log  weekly=2026-W21.log  monthly=2026-05.log
+
+# Web 管理页面（可选）
+# 启用后访问 / 查看服务状态和预算信息
+web:
+  enabled: false          # 设为 true 启用管理页面
+  password: ""            # 访问密码，为空则不需要密码

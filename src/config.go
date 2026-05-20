@@ -37,6 +37,11 @@ type LogConfig struct {
 	Rotation  string `yaml:"rotation"`
 }
 
+type WebConfig struct {
+	Enabled  bool   `yaml:"enabled"`
+	Password string `yaml:"password"`
+}
+
 type Config struct {
 	Server          ServerConfig           `yaml:"server"`
 	Ekb             EkbConfig              `yaml:"ekuaibao"`
@@ -45,6 +50,7 @@ type Config struct {
 	ExemptProjects  []string               `yaml:"exempt_projects"`
 	Sync            SyncConfig             `yaml:"sync"`
 	Logging         LogConfig              `yaml:"logging"`
+	Web             WebConfig              `yaml:"web"`
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -151,6 +151,16 @@ func mainLogic() {
 	}()
 
 	mux := http.NewServeMux()
+	if cfg.Web.Enabled {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/" {
+				http.NotFound(w, r)
+				return
+			}
+			handleHome(w, r, store, cfg)
+		})
+		log.Println("[Web] 管理页面已启用: /")
+	}
 	mux.HandleFunc("/api/webhook/budget-check", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", 405)
