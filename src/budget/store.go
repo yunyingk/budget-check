@@ -7,31 +7,20 @@ import (
 
 // Node 预算树节点，key 是维度内容ID，用 map[string]*Node 做子节点查找 O(1)
 type Node struct {
-	 DimCode  string                // 维度内容ID
-	 NodeName string                // 节点名称
-	 IsLeaf   bool                  // 是否叶子节点
-	 Children  map[string]*Node     // 子节点，key=子节点的dimCode
+	DimCode  string                // 维度内容ID
+	DimType  string                // 维度类型，从 API dimensionType 字段获取
+	NodeName string                // 节点名称
+	IsLeaf   bool                  // 是否叶子节点
+	Children  map[string]*Node     // 子节点，key=子节点的dimCode
 }
 
 // Tree 预算包树
 //
 // 每个预算包是一棵树，根节点的子节点在第1层
-// 同一层的所有节点共享同一个维度类型
 // 校验时沿树路径匹配：第1层→第2层→第3层，必须沿着同一分支往下走
-//
-// 示例:
-//
-//	Tree: 2026成本中心预算包
-//	  Level 1 DEPARTMENT (Root的子节点):
-//	    "ID001"(销售部) → Level 2 ARCHIVE:
-//	                       "ID101"(差旅费) → Level 3 PROJECT: "ID201"(项目A)
-//	                       "ID102"(办公费) → Level 3 PROJECT: "ID202"(项目B)
-//	    "ID002"(研发部) → Level 1 ARCHIVE:
-//	                       "ID103"(设备费) → Level 2 PROJECT: "ID203"(项目C)
 type Tree struct {
 	ID       string               // 预算包ID
 	Name     string               // 预算包名称
-	DimType  string               // 根节点下一层的维度类型（DEPARTMENT/ARCHIVE/PROJECT）
 	MaxDepth int                  // 树的最大深度（含根）
 	Root     map[string]*Node     // 第1层节点，key=dimCode
 }

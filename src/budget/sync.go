@@ -80,8 +80,8 @@ func Sync(store *Store, fetcher *EkbFetcher, cfg SyncConfig) {
 type rawNode struct {
 	nodeID   string
 	nodeName string
-	dimCode  string
-	dimType  string
+	dimCode  string // contentId，用于树节点索引
+	dimType  string // dimensionType，原样存储
 	isLeaf   bool
 }
 
@@ -112,7 +112,6 @@ func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, ma
 		return tree
 	}
 
-	tree.DimType = rootNodes[0].dimType
 	tree.MaxDepth = maxDepth
 
 	type drillTask struct {
@@ -125,6 +124,7 @@ func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, ma
 	for _, rn := range rootNodes {
 		node := &Node{
 			DimCode:  rn.dimCode,
+			DimType:  rn.dimType,
 			NodeName: rn.nodeName,
 			IsLeaf:   rn.isLeaf,
 			Children: make(map[string]*Node),
@@ -177,6 +177,7 @@ func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, ma
 			for _, rn := range res.children {
 				node := &Node{
 					DimCode:  rn.dimCode,
+					DimType:  rn.dimType,
 					NodeName: rn.nodeName,
 					IsLeaf:   rn.isLeaf,
 					Children: make(map[string]*Node),
@@ -397,18 +398,8 @@ func parseRawNodes(nodes []interface{}) ([]rawNode, []string) {
 		for _, c := range contents {
 			content, _ := c.(map[string]interface{})
 			dimCode, _ := content["contentId"].(string)
-			dimID := strings.TrimSpace(fmt.Sprintf("%v", content["dimensionId"]))
-
-			dimType := "UNKNOWN"
-			if dimID == "E_system_costcenter" || strings.Contains(strings.ToLower(dimID), "costcenter") {
-				dimType = "DEPARTMENT"
-			} else if dimID == "u_费用类型档案" || strings.Contains(dimID, "费用类型") {
-				dimType = "ARCHIVE"
-			} else if dimID == "项目" || strings.Contains(strings.ToLower(dimID), "project") || fmt.Sprintf("%v", content["dimensionType"]) == "PROJECT" {
-				dimType = "PROJECT"
-			}
-
-			if dimType != "UNKNOWN" && dimCode != "" {
+			dimType, _ := content["dimensionType"].(string)
+			if dimCode != "" {
 				result = append(result, rawNode{
 					nodeID:   nID,
 					nodeName: nName,
