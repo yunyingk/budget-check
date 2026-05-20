@@ -19,10 +19,11 @@ type CheckRequest struct {
 }
 
 type CheckTask struct {
-	ID        string
-	Request   CheckRequest
-	Enqueued  time.Time
-	ClientIP  string
+	ID         string
+	Request    CheckRequest
+	EnqueuedAt time.Time
+	ClientIP   string
+	QueuePos   int // 入队时队列长度
 }
 
 func genTaskID(code string) string {
@@ -66,10 +67,11 @@ func handleCheck(w http.ResponseWriter, r *http.Request, store *budget.Store, cf
 	}
 
 	task := CheckTask{
-		ID:       genTaskID(req.Code),
-		Request:  req,
-		Enqueued: time.Now(),
-		ClientIP: r.RemoteAddr,
+		ID:         genTaskID(req.Code),
+		Request:    req,
+		EnqueuedAt: time.Now(),
+		ClientIP:   r.RemoteAddr,
+		QueuePos:   len(taskQueue),
 	}
 
 	select {
