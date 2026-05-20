@@ -6,12 +6,13 @@ import (
 	"log"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
-func SyncBudget(store *Store, client *EkbClient, targets []BudgetTarget) {
+func SyncBudget(store *Store, client *EkbClient, targets []BudgetTarget, workers int) {
 	start := time.Now()
-	log.Printf("[Sync] 开始同步预算数据...")
+	log.Printf("[Sync] 开始同步预算数据... (并发数: %d)", workers)
 
 	token, err := client.GetToken()
 	if err != nil {
@@ -56,7 +57,7 @@ func SyncBudget(store *Store, client *EkbClient, targets []BudgetTarget) {
 		if !strings.HasPrefix(realID, "$") {
 			realID = "$" + realID
 		}
-		queryURL := client.host + "/v2/budgets/" + realID + "/query"
+		queryURL := client.apiURL("/v2/budgets/" + realID + "/query")
 
 		currentNodes := []string{""}
 		totalNodes := 0
@@ -67,17 +68,46 @@ func SyncBudget(store *Store, client *EkbClient, targets []BudgetTarget) {
 			}
 			log.Printf("    [Layer %d] 处理 %d 个节点...", level+1, len(currentNodes))
 
-			var allRows []DimEntry
-			var nextIDs []string
+			type fetchResult struct {
+				rows     []DimEntry
+				children []string
+				err      error
+				nodeID   string
+				total    int
+			}
+
+			ch := make(chan fetchResult, len(currentNodes))
+			sem := make(chan struct{}, workers)
+			var wg sync.WaitGroup
 
 			for _, nodeID := range currentNodes {
-				rows, children, err := fetchNodeChildren(client, token, queryURL, nodeID)
-				if err != nil {
-					log.Printf("    [Warn] 节点 %s 失败: %v", nodeID, err)
+				wg.Add(1)
+				go func(nid string) {
+					defer wg.Done()
+					sem <- struct{}{}
+					defer func() { <-sem }()
+					rows, children, total, err := fetchNodeChildren(client, token, queryURL, nid)
+					ch <- fetchResult{rows: rows, children: children, err: err, nodeID: nid, total: total}
+				}(nodeID)
+			}
+
+			go func() {
+				wg.Wait()
+				close(ch)
+			}()
+
+			var allRows []DimEntry
+			var nextIDs []string
+			for res := range ch {
+				if res.err != nil {
+					log.Printf("    [Warn] 节点 %s 失败: %v", res.nodeID, res.err)
 					continue
 				}
-				allRows = append(allRows, rows...)
-				nextIDs = append(nextIDs, children...)
+				if res.total > 0 && totalNodes == 0 {
+					log.Printf("    [Layer %d] 预计子节点总量: %d", level+1, res.total-1)
+				}
+				allRows = append(allRows, res.rows...)
+				nextIDs = append(nextIDs, res.children...)
 				totalNodes++
 			}
 
@@ -119,16 +149,18 @@ func fetchBudgetList(client *EkbClient, token string) ([]map[string]interface{},
 	return budgets, nil
 }
 
-func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string) ([]DimEntry, []string, error) {
+func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string) ([]DimEntry, []string, int, error) {
 	var allRows []DimEntry
 	var nextIDs []string
-	start := 0
+	totalCount := 0
+	offset := 0
+	pageSize := 100
 
 	for {
 		params := url.Values{
 			"accessToken": {token},
-			"start":       {intToStr(start)},
-			"count":       {"100"},
+			"start":       {intToStr(offset)},
+			"count":       {intToStr(pageSize)},
 		}
 		if nodeID != "" {
 			params.Set("nodeId", nodeID)
@@ -136,7 +168,7 @@ func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string) ([]Dim
 
 		resp, err := client.client.Get(queryURL + "?" + params.Encode())
 		if err != nil {
-			return allRows, nextIDs, err
+			return allRows, nextIDs, 0, err
 		}
 
 		var result map[string]interface{}
@@ -149,8 +181,20 @@ func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string) ([]Dim
 			break
 		}
 
-		for _, n := range nodes {
-			node, _ := n.(map[string]interface{})
+		// 从 API 响应中取 count（节点+子节点总数）
+		if c, ok := val["count"].(float64); ok && int(c) > 0 {
+			totalCount = int(c)
+		}
+
+		// 每页第一条是节点自身，子节点从第二条开始
+		if len(nodes) == 1 {
+			// 只有自身，没有子节点
+			break
+		}
+		children := nodes[1:]
+
+		for _, ch := range children {
+			node, _ := ch.(map[string]interface{})
 			nID, _ := node["nodeId"].(string)
 			nName, _ := node["name"].(string)
 			if nName == "" {
@@ -187,11 +231,12 @@ func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string) ([]Dim
 			}
 		}
 
-		if len(nodes) < 100 {
+		// 如果子节点数不足 pageSize，说明没有下一页了
+		if len(children) < pageSize {
 			break
 		}
-		start += 100
+		offset += pageSize
 	}
 
-	return allRows, nextIDs, nil
+	return allRows, nextIDs, totalCount, nil
 }

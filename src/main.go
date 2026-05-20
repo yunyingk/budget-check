@@ -27,20 +27,27 @@ func main() {
 
 	log.Printf("配置加载成功: 端口=%d, 合思主机=%s", cfg.Server.Port, cfg.Ekb.Host)
 
+	workers := cfg.Sync.Workers
+	if workers <= 0 {
+		workers = 10
+	}
+
 	store := NewStore()
 	client := NewEkbClient(cfg)
 
 	if *syncNow {
-		SyncBudget(store, client, cfg.BudgetTargets)
+		SyncBudget(store, client, cfg.BudgetTargets, workers)
 		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())
 		return
 	}
 
+	log.Println("[Init] 首次同步预算数据...")
+	SyncBudget(store, client, cfg.BudgetTargets, workers)
+
 	go func() {
 		for {
-			SyncBudget(store, client, cfg.BudgetTargets)
-			log.Printf("[Scheduler] 下次同步: %d 分钟后", cfg.Sync.IntervalMinutes)
 			time.Sleep(time.Duration(cfg.Sync.IntervalMinutes) * time.Minute)
+			SyncBudget(store, client, cfg.BudgetTargets, workers)
 		}
 	}()
 
@@ -60,7 +67,7 @@ func main() {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		handleSync(w, r, store, client, cfg)
+		handleSync(w, r, store, client, cfg, cfg.Sync.Workers)
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)

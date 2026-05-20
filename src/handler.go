@@ -98,10 +98,10 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *Store) {
 	})
 }
 
-func handleSync(w http.ResponseWriter, r *http.Request, store *Store, client *EkbClient, cfg *Config) {
+func handleSync(w http.ResponseWriter, r *http.Request, store *Store, client *EkbClient, cfg *Config, workers int) {
 	go func() {
 		log.Println("[API] 收到手动同步请求")
-		SyncBudget(store, client, cfg.BudgetTargets)
+		SyncBudget(store, client, cfg.BudgetTargets, workers)
 	}()
 	writeJSON(w, 200, map[string]string{"message": "同步已启动"})
 }

@@ -10,20 +10,22 @@ import (
 )
 
 type EkbClient struct {
-	host   string
-	appKey string
-	secret string
-	token  string
-	expiry time.Time
-	client *http.Client
+	host      string
+	basePath  string
+	appKey    string
+	secret    string
+	token     string
+	expiry    time.Time
+	client    *http.Client
 }
 
 func NewEkbClient(cfg *Config) *EkbClient {
 	return &EkbClient{
-		host:   cfg.Ekb.Host,
-		appKey: cfg.Ekb.AppKey,
-		secret: cfg.Ekb.AppSecret,
-		client: &http.Client{Timeout: 15 * time.Second},
+		host:     cfg.Ekb.Host,
+		basePath: "/api/openapi",
+		appKey:   cfg.Ekb.AppKey,
+		secret:   cfg.Ekb.AppSecret,
+		client:   &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -35,7 +37,7 @@ func (c *EkbClient) GetToken() (string, error) {
 		"appKey":      c.appKey,
 		"appSecurity": c.secret,
 	})
-	resp, err := c.client.Post(c.host+"/v1/auth/getAccessToken", "application/json", bytes.NewReader(body))
+	resp, err := c.client.Post(c.apiURL("/v1/auth/getAccessToken"), "application/json", bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -157,6 +159,10 @@ func (c *EkbClient) GetDimInfo(dimID string) (map[string]interface{}, error) {
 }
 
 func (c *EkbClient) get(path string, params url.Values) (*http.Response, error) {
-	u := c.host + path + "?" + params.Encode()
+	u := c.apiURL(path) + "?" + params.Encode()
 	return c.client.Get(u)
+}
+
+func (c *EkbClient) apiURL(path string) string {
+	return c.host + c.basePath + path
 }
