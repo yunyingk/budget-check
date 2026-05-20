@@ -19,6 +19,7 @@ type EkbConfig struct {
 }
 
 type BudgetTarget struct {
+	ID    string `yaml:"id"`
 	Name  string `yaml:"name"`
 	Depth int    `yaml:"depth"`
 }

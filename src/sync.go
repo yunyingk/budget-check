@@ -35,7 +35,12 @@ func SyncBudget(store *Store, client *EkbClient, targets []BudgetTarget) {
 
 		targetDepth := 0
 		for _, t := range targets {
-			if strings.Contains(bName, t.Name) {
+			if t.ID != "" {
+				if bID == t.ID {
+					targetDepth = t.Depth
+					break
+				}
+			} else if strings.Contains(bName, t.Name) {
 				targetDepth = t.Depth
 				break
 			}
