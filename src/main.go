@@ -83,7 +83,14 @@ func main() {
 			log.Println("[API] 收到手动同步请求")
 			budget.Sync(store, fetcher, syncCfg)
 		}()
-		writeJSON(w, 200, map[string]string{"message": "同步已启动"})
+		writeJSON(w, 200, map[string]interface{}{
+			"success":      true,
+			"message":      "同步已启动",
+			"started_at":   time.Now().Format(time.RFC3339),
+			"client_ip":    r.RemoteAddr,
+			"cache_before": store.Count(),
+			"workers":      cfg.Sync.Workers,
+		})
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
