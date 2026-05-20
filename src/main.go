@@ -86,7 +86,7 @@ func main() {
 		writeJSON(w, 200, map[string]interface{}{
 			"success":      true,
 			"message":      "同步已启动",
-			"started_at":   time.Now().Format(time.RFC3339),
+			"started_at":   time.Now().Format("2006-01-02 15:04:05"),
 			"client_ip":    r.RemoteAddr,
 			"cache_before": store.Count(),
 			"workers":      cfg.Sync.Workers,
