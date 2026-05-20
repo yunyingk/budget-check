@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
@@ -39,10 +41,31 @@ type Config struct {
 }
 
 func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
+	// 如果指定了非默认路径，直接用
+	if path != "config.yaml" {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		return parseConfig(data)
 	}
+
+	// 默认路径：优先 config/config.yaml，其次 config.yaml
+	searchPaths := []string{
+		filepath.Join("config", "config.yaml"),
+		"config.yaml",
+	}
+	for _, p := range searchPaths {
+		data, err := os.ReadFile(p)
+		if err == nil {
+			fmt.Printf("[Config] 使用配置文件: %s\n", p)
+			return parseConfig(data)
+		}
+	}
+	return nil, fmt.Errorf("未找到配置文件，已搜索: %v", searchPaths)
+}
+
+func parseConfig(data []byte) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
