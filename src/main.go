@@ -63,7 +63,7 @@ func main() {
 		budget.Sync(store, client, syncCfg)
 		log.Println("[Init] 首次同步完成，开始消费队列")
 
-		checker := consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature)
+		checker := consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature, cfg.ExemptProjects)
 		go func() {
 			for task := range QueueChan() {
 				func() {

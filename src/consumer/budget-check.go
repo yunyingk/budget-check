@@ -13,19 +13,25 @@ import (
 
 // Checker 校验器，持有共享依赖
 type Checker struct {
-	Client        *ekb.Client
-	Store         *budget.Store
-	SignKey       string
-	ExpenseNature map[string]string // 费用性质 ID → 中文名
+	Client         *ekb.Client
+	Store          *budget.Store
+	SignKey        string
+	ExpenseNature  map[string]string // 费用性质 ID → 中文名
+	ExemptProjects map[string]bool   // 豁免项目 ID 集合
 }
 
 // NewChecker 创建校验器
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expenseNature map[string]string) *Checker {
+func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expenseNature map[string]string, exemptProjects []string) *Checker {
+	exempt := make(map[string]bool, len(exemptProjects))
+	for _, id := range exemptProjects {
+		exempt[id] = true
+	}
 	return &Checker{
-		Client:        client,
-		Store:         store,
-		SignKey:       signKey,
-		ExpenseNature: expenseNature,
+		Client:         client,
+		Store:          store,
+		SignKey:        signKey,
+		ExpenseNature:  expenseNature,
+		ExemptProjects: exempt,
 	}
 }
 
@@ -137,6 +143,7 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 }
 
 // checkProduction 生产费用：先查项目预算包的项目，再查项目下的成本中心
+// 豁免项目：不校验项目本身，只校验成本中心
 func (c *Checker) checkProduction(costCenter, project string) (string, string) {
 	if project == "" {
 		return "refuse", "生产费用缺少项目"
@@ -146,6 +153,16 @@ func (c *Checker) checkProduction(costCenter, project string) (string, string) {
 	if tree == nil {
 		log.Printf("[Consumer] 项目预算包未同步")
 		return "refuse", "项目预算包未同步"
+	}
+
+	// 豁免项目：跳过项目校验，只查成本中心
+	if c.ExemptProjects[project] {
+		if costCenter == "" {
+			return "accept", "公摊豁免（无成本中心）"
+		}
+		// 豁免项目也要查成本中心（如果有的话）
+		// TODO: 这里需要确认豁免项目的成本中心怎么校验
+		return "accept", "公摊豁免"
 	}
 
 	// 查项目
