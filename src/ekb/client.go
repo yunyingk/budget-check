@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -63,7 +64,11 @@ func (c *Client) Get(rawURL string) (*http.Response, error) {
 
 // GetWithToken 使用指定 token 发起 GET 请求（用于已持有 token 的场景）
 func (c *Client) GetWithToken(rawURL, token string) (*http.Response, error) {
-	return c.client.Get(rawURL + "?accessToken=" + url.QueryEscape(token))
+	sep := "&"
+	if !strings.Contains(rawURL, "?") {
+		sep = "?"
+	}
+	return c.client.Get(rawURL + sep + "accessToken=" + url.QueryEscape(token))
 }
 
 // HostURL 拼接主机地址 + 路径

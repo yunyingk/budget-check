@@ -56,5 +56,5 @@ logging:
 # Web 管理页面（可选）
 # 启用后访问 / 查看服务状态和预算信息
 web:
-  enabled: false          # 设为 true 启用管理页面
+  enabled: true           # 设为 true 启用管理页面
   password: ""            # 访问密码，为空则不需要密码
