@@ -9,6 +9,7 @@ import (
 
 	"budget/src/budget"
 	"budget/src/consumer"
+	"budget/src/ekb"
 	"budget/src/webhook"
 )
 
@@ -37,7 +38,7 @@ func main() {
 	}
 
 	store := budget.NewStore()
-	fetcher := budget.NewEkbFetcher(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
+	client := ekb.NewClient(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
 
 	queueSize := cfg.Sync.QueueSize
 	if queueSize <= 0 {
@@ -52,37 +53,33 @@ func main() {
 	syncCfg := budget.SyncConfig{Targets: targets, Workers: workers}
 
 	if *syncNow {
-		budget.Sync(store, fetcher, syncCfg)
+		budget.Sync(store, client, syncCfg)
 		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())
 		return
 	}
 
 	log.Println("[Init] 开始后台同步预算数据...")
 	go func() {
-		budget.Sync(store, fetcher, syncCfg)
+		budget.Sync(store, client, syncCfg)
 		log.Println("[Init] 首次同步完成，开始消费队列")
-	go func() {
-		for task := range QueueChan() {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
-					}
+
+		checker := consumer.NewChecker(client, store)
+		go func() {
+			for task := range QueueChan() {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
+						}
+					}()
+					checker.Process(task)
 				}()
-				consumer.Process(consumer.Task{
-					ID:         task.ID,
-					Code:       task.Code,
-					FlowID:     task.FlowID,
-					NodeID:     task.NodeID,
-					EnqueuedAt: task.EnqueuedAt,
-					ClientIP:   task.ClientIP,
-				})
-			}()
-		}
-	}()
+			}
+		}()
+
 		for {
 			time.Sleep(time.Duration(cfg.Sync.IntervalMinutes) * time.Minute)
-			budget.Sync(store, fetcher, syncCfg)
+			budget.Sync(store, client, syncCfg)
 		}
 	}()
 
@@ -119,7 +116,7 @@ func main() {
 		}
 		go func() {
 			log.Println("[API] 收到手动同步请求")
-			budget.Sync(store, fetcher, syncCfg)
+			budget.Sync(store, client, syncCfg)
 		}()
 		writeJSON(w, 200, map[string]interface{}{
 			"success":       true,

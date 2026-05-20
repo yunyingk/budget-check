@@ -1,11 +1,10 @@
 package budget
 
 import (
-	"bytes"
+	"budget/src/ekb"
 	"encoding/json"
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
 	"strings"
 	"sync"
@@ -26,11 +25,11 @@ type SyncConfig struct {
 }
 
 // Sync 同步所有匹配的预算包，构建树并写入 Store
-func Sync(store *Store, fetcher *EkbFetcher, cfg SyncConfig) {
+func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 	start := time.Now()
 	log.Printf("[Sync] 开始同步预算数据... (并发数: %d)", cfg.Workers)
 
-	token, err := fetcher.GetToken()
+	token, err := client.GetToken()
 	if err != nil {
 		log.Printf("[Sync] 获取Token失败: %v", err)
 		return
@@ -39,7 +38,7 @@ func Sync(store *Store, fetcher *EkbFetcher, cfg SyncConfig) {
 
 	store.Clear()
 
-	budgets, err := fetcher.FetchBudgetList(token)
+	budgets, err := fetchBudgetList(client, token)
 	if err != nil {
 		log.Printf("[Sync] 获取预算列表失败: %v", err)
 		return
@@ -68,7 +67,7 @@ func Sync(store *Store, fetcher *EkbFetcher, cfg SyncConfig) {
 
 		log.Printf("[Sync] 同步: %s (深度: %d)", bName, targetDepth)
 
-		tree := buildTree(bID, bName, fetcher, token, cfg.Workers, targetDepth)
+		tree := buildTree(bID, bName, client, token, cfg.Workers, targetDepth)
 		store.AddTree(tree)
 		log.Printf("    -> %s 完成, 维度条目: %d", bName, store.Count())
 	}
@@ -86,7 +85,7 @@ type rawNode struct {
 }
 
 // buildTree 从根节点开始逐层构建预算包树
-func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, maxDepth int) *Tree {
+func buildTree(bID, bName string, client *ekb.Client, token string, workers, maxDepth int) *Tree {
 	tree := &Tree{
 		ID:   bID,
 		Name: bName,
@@ -97,9 +96,9 @@ func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, ma
 	if !strings.HasPrefix(realID, "$") {
 		realID = "$" + realID
 	}
-	queryURL := fetcher.QueryURL(realID)
+	queryURL := client.HostURL("/api/openapi/v2/budgets/" + realID + "/query")
 
-	rootNodes, _, total, err := fetcher.FetchNodes(queryURL, "", token, workers)
+	rootNodes, _, total, err := fetchNodes(client, queryURL, "", token, workers)
 	if err != nil {
 		log.Printf("    [Error] 拉取根节点失败: %v", err)
 		return tree
@@ -158,7 +157,7 @@ func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, ma
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
-				nodes, _, _, err := fetcher.FetchNodes(queryURL, t.nodeID, token, workers)
+				nodes, _, _, err := fetchNodes(client, queryURL, t.nodeID, token, workers)
 				ch <- drillResult{parent: t.parent, children: nodes, task: t, err: err}
 			}(task)
 		}
@@ -195,53 +194,10 @@ func buildTree(bID, bName string, fetcher *EkbFetcher, token string, workers, ma
 	return tree
 }
 
-// --- EkbFetcher 是 Fetcher 接口的合思实现 ---
-
-// EkbFetcher 通过合思 API 拉取预算数据
-type EkbFetcher struct {
-	Host    string
-	AppKey  string
-	Secret  string
-	token   string
-	expiry  time.Time
-	client  *http.Client
-}
-
-func NewEkbFetcher(host, appKey, secret string) *EkbFetcher {
-	return &EkbFetcher{
-		Host:   host,
-		AppKey:  appKey,
-		Secret: secret,
-		client: &http.Client{Timeout: 15 * time.Second},
-	}
-}
-
-func (f *EkbFetcher) GetToken() (string, error) {
-	if f.token != "" && time.Now().Before(f.expiry) {
-		return f.token, nil
-	}
-	body, _ := json.Marshal(map[string]string{"appKey": f.AppKey, "appSecurity": f.Secret})
-	resp, err := f.client.Post(f.Host+"/api/openapi/v1/auth/getAccessToken", "application/json", bytes.NewReader(body))
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
-	val, _ := result["value"].(map[string]interface{})
-	token, _ := val["accessToken"].(string)
-	f.token = token
-	f.expiry = time.Now().Add(110 * time.Minute)
-	return token, nil
-}
-
-func (f *EkbFetcher) QueryURL(budgetPathID string) string {
-	return f.Host + "/api/openapi/v2/budgets/" + budgetPathID + "/query"
-}
-
-func (f *EkbFetcher) FetchBudgetList(token string) ([]map[string]interface{}, error) {
-	u := f.Host + "/api/openapi/v2/budgets?accessToken=" + url.QueryEscape(token) + "&start=0&count=100"
-	resp, err := f.client.Get(u)
+// fetchBudgetList 获取预算包列表
+func fetchBudgetList(client *ekb.Client, token string) ([]map[string]interface{}, error) {
+	u := client.HostURL("/api/openapi/v2/budgets?start=0&count=100")
+	resp, err := client.GetWithToken(u, token)
 	if err != nil {
 		return nil, err
 	}
@@ -261,7 +217,8 @@ func (f *EkbFetcher) FetchBudgetList(token string) ([]map[string]interface{}, er
 	return budgets, nil
 }
 
-func (f *EkbFetcher) FetchNodes(queryURL, nodeID, token string, workers int) ([]rawNode, []string, int, error) {
+// fetchNodes 拉取预算节点（支持分页并发）
+func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int) ([]rawNode, []string, int, error) {
 	pageSize := 100
 
 	params := url.Values{
@@ -273,7 +230,7 @@ func (f *EkbFetcher) FetchNodes(queryURL, nodeID, token string, workers int) ([]
 		params.Set("nodeId", nodeID)
 	}
 
-	resp, err := f.client.Get(queryURL + "?" + params.Encode())
+	resp, err := client.GetWithToken(queryURL+"?"+params.Encode(), token)
 	if err != nil {
 		return nil, nil, 0, err
 	}
@@ -337,7 +294,7 @@ func (f *EkbFetcher) FetchNodes(queryURL, nodeID, token string, workers int) ([]
 				pParams.Set("nodeId", nodeID)
 			}
 
-			pResp, pErr := f.client.Get(queryURL + "?" + pParams.Encode())
+			pResp, pErr := client.GetWithToken(queryURL+"?"+pParams.Encode(), token)
 			if pErr != nil {
 				ch <- pageResult{err: pErr, page: p}
 				return
