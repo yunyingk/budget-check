@@ -11,6 +11,7 @@ ekuaibao:
   host: "https://app.ekuaibao.com"  # 合思 API 域名，不带路径
   app_key: "9c5b3631-0e6a-4b3e-afcd-7d6fcfc377ca"    # 应用 Key
   app_secret: "d866a007-78a3-4bfd-972e-9ea1bf87a3d5"  # 应用 Secret
+  sign_key: "l5fY6tdAf9W7"         # 出站消息签名密钥，用于回调审批
 
 # 费用性质 ID 映射
 # 合思单据中 u_费用性质 字段的值是 ID，需要映射为中文名称用于分支判断

@@ -80,6 +80,18 @@ func (s *Store) FindTree(dimCode string) (*Tree, bool) {
 	return tree, ok
 }
 
+// GetTreeByName 按名称查找预算包
+func (s *Store) GetTreeByName(name string) *Tree {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, t := range s.trees {
+		if t.Name == name {
+			return t
+		}
+	}
+	return nil
+}
+
 func (s *Store) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()

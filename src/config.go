@@ -16,6 +16,7 @@ type EkbConfig struct {
 	Host      string `yaml:"host"`
 	AppKey    string `yaml:"app_key"`
 	AppSecret string `yaml:"app_secret"`
+	SignKey   string `yaml:"sign_key"`
 }
 
 type BudgetTarget struct {
