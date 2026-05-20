@@ -115,15 +115,18 @@ func (c *Checker) checkProduction(costCenter, project string) (string, string) {
 		return "refuse", "项目不在预算内"
 	}
 
-	// 项目下有成本中心子预算时，也要命中
-	if len(projectNode.Children) > 0 && costCenter != "" {
+	// 项目下有成本中心子预算时，必须命中
+	if len(projectNode.Children) > 0 {
+		if costCenter == "" {
+			return "refuse", "项目要求成本中心但未填写"
+		}
 		if _, ok := projectNode.Children[costCenter]; ok {
 			return "accept", "项目+成本中心在预算内"
 		}
 		return "refuse", "成本中心不在项目预算内"
 	}
 
-	// 项目下没有成本中心子预算，或单据没有成本中心，只命中项目即可
+	// 项目下没有成本中心子预算，只命中项目即可
 	return "accept", "项目在预算内"
 }
 
