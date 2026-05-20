@@ -87,6 +87,7 @@ func main() {
 			"success":       true,
 			"message":       "同步已启动",
 			"started_at":    time.Now().Format(time.RFC3339),
+			"last_sync_at":  store.UpdatedAt().Format(time.RFC3339),
 			"client_ip":     r.RemoteAddr,
 			"current_count": store.Count(),
 			"workers":       cfg.Sync.Workers,
