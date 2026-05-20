@@ -35,14 +35,46 @@
 
 ## 接口
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | /api/ebot/check | 单据校验（ticket_id, callback_url） |
-| GET  | /api/status | 查看缓存状态 |
-| POST | /api/sync | 手动触发同步 |
+| 方法 | 路径 | 说明 | 认证 |
+|------|------|------|------|
+| GET | /api/status | 健康检查，查看缓存状态 | 无 |
+| GET/POST | /api/sync | 手动触发同步 | query `password` |
+| GET | /api/config | 查看运行配置 | query `password`，密码为空时禁用 |
+| POST | /api/webhook/budget-check | 单据校验入队 | 无 |
+
+### 单据校验请求示例
+
+```json
+{
+  "code": "HS2026050334",
+  "flowId": "ID01T0bZEtkW1G",
+  "nodeId": "FLOW:1357809991:1128586113"
+}
+```
+
+### 成功响应
+
+```json
+{
+  "budget-check": "1",
+  "success": true,
+  "message": "已入队等待处理",
+  "task_id": "260520-a1b2c3-050334"
+}
+```
 
 ## 手动同步
 
 ```bash
 ./budget-check -sync -config config.yaml
 ```
+
+## 架构
+
+```
+HTTP请求 → webhook.Handle() → 入队 → consumer.Process() → 业务处理
+```
+
+- 服务启动即可接收请求入队
+- 首次同步完成后开始消费队列
+- 消费端有 recover 保护，单条任务 panic 不影响后续消费
