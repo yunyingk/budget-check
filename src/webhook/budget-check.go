@@ -1,23 +1,65 @@
 package webhook
 
 import (
+	"budget/src/types"
+	"encoding/json"
 	"log"
+	"net/http"
 	"time"
 )
 
-// Task 校验任务
-type Task struct {
-	ID         string
-	Code       string
-	FlowID     string
-	NodeID     string
-	EnqueuedAt time.Time
-	ClientIP   string
+// Request 合思回调请求
+type Request struct {
+	Code   string `json:"code"`
+	FlowID string `json:"flowId"`
+	NodeID string `json:"nodeId"`
 }
 
-// Process 处理校验任务
-func Process(task Task) {
-	log.Printf("[Task] 开始处理: taskID=%s code=%s flowId=%s nodeId=%s", task.ID, task.Code, task.FlowID, task.NodeID)
-	// TODO: 业务校验逻辑
-	log.Printf("[Task] 处理完成: taskID=%s (暂未实现业务逻辑)", task.ID)
+// Response 返回给合思的响应
+type Response struct {
+	BudgetCheck string `json:"budget-check"`
+	Success     bool   `json:"success"`
+	Message     string `json:"message"`
+	TaskID      string `json:"task_id,omitempty"`
+}
+
+// Handle HTTP 入口：解析请求、校验、入队、返回
+func Handle(w http.ResponseWriter, r *http.Request, enqueue func(types.Task) bool, genID func(string) string) {
+	var req Request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, Response{BudgetCheck: "0", Message: "请求格式错误"})
+		return
+	}
+	if req.Code == "" || req.FlowID == "" || req.NodeID == "" {
+		writeJSON(w, 400, Response{BudgetCheck: "0", Message: "code、flowId、nodeId 不能为空"})
+		return
+	}
+
+	task := types.Task{
+		ID:         genID(req.Code),
+		Code:       req.Code,
+		FlowID:     req.FlowID,
+		NodeID:     req.NodeID,
+		EnqueuedAt: time.Now(),
+		ClientIP:   r.RemoteAddr,
+	}
+
+	if enqueue(task) {
+		log.Printf("[Webhook] 入队: taskID=%s code=%s flowId=%s nodeId=%s", task.ID, task.Code, task.FlowID, task.NodeID)
+		writeJSON(w, 200, Response{
+			BudgetCheck: "1",
+			Success:     true,
+			Message:     "已入队等待处理",
+			TaskID:      task.ID,
+		})
+	} else {
+		log.Printf("[Webhook] 队列已满，拒绝: code=%s", req.Code)
+		writeJSON(w, 503, Response{BudgetCheck: "0", Message: "队列已满，请稍后重试"})
+	}
+}
+
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
 }

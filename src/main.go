@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"budget/src/budget"
+	"budget/src/consumer"
+	"budget/src/webhook"
 )
 
 func main() {
@@ -59,11 +61,25 @@ func main() {
 	go func() {
 		budget.Sync(store, fetcher, syncCfg)
 		log.Println("[Init] 首次同步完成，开始消费队列")
-		go func() {
-			for task := range QueueChan() {
-				processTask(task, store)
-			}
-		}()
+	go func() {
+		for task := range QueueChan() {
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
+					}
+				}()
+				consumer.Process(consumer.Task{
+					ID:         task.ID,
+					Code:       task.Code,
+					FlowID:     task.FlowID,
+					NodeID:     task.NodeID,
+					EnqueuedAt: task.EnqueuedAt,
+					ClientIP:   task.ClientIP,
+				})
+			}()
+		}
+	}()
 		for {
 			time.Sleep(time.Duration(cfg.Sync.IntervalMinutes) * time.Minute)
 			budget.Sync(store, fetcher, syncCfg)
@@ -76,7 +92,7 @@ func main() {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		handleCheck(w, r, store, cfg)
+		webhook.Handle(w, r, Enqueue, GenTaskID)
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, store)

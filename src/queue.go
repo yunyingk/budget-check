@@ -1,32 +1,23 @@
 package main
 
 import (
+	"budget/src/types"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"time"
 )
 
-// CheckTask 校验任务
-type CheckTask struct {
-	ID         string
-	Code       string
-	FlowID     string
-	NodeID     string
-	EnqueuedAt time.Time
-	ClientIP   string
-}
-
 // taskQueue 全局任务队列
-var taskQueue chan CheckTask
+var taskQueue chan types.Task
 
 // InitQueue 初始化队列
 func InitQueue(size int) {
-	taskQueue = make(chan CheckTask, size)
+	taskQueue = make(chan types.Task, size)
 }
 
 // Enqueue 入队
-func Enqueue(task CheckTask) bool {
+func Enqueue(task types.Task) bool {
 	select {
 	case taskQueue <- task:
 		return true
@@ -36,7 +27,7 @@ func Enqueue(task CheckTask) bool {
 }
 
 // QueueChan 返回队列 channel，供消费端 range
-func QueueChan() <-chan CheckTask {
+func QueueChan() <-chan types.Task {
 	return taskQueue
 }
 
