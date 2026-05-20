@@ -1,15 +1,13 @@
 package main
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
 
 	"budget/src/budget"
+	"budget/src/webhook"
 )
 
 type CheckRequest struct {
@@ -18,42 +16,12 @@ type CheckRequest struct {
 	NodeID string `json:"nodeId"`
 }
 
-type CheckTask struct {
-	ID         string
-	Request    CheckRequest
-	EnqueuedAt time.Time
-	ClientIP   string
-	QueuePos   int // 入队时队列长度
-}
-
-func genTaskID(code string) string {
-	b := make([]byte, 3)
-	rand.Read(b)
-	date := time.Now().Format("060102") // YYMMDD
-	suffix := code
-	if len(suffix) > 6 {
-		suffix = suffix[len(suffix)-6:]
-	} else if len(suffix) < 6 {
-		suffix = fmt.Sprintf("%06s", suffix) // 不足6位补0
-	}
-	return fmt.Sprintf("%s-%s-%s", date, hex.EncodeToString(b), suffix)
-}
-
 type CheckResponse struct {
 	BudgetCheck string `json:"budget-check"`
 	Success     bool   `json:"success"`
 	Message     string `json:"message"`
 	TaskID      string `json:"task_id,omitempty"`
-	Pending     int    `json:"pending,omitempty"`
 }
-
-type CallbackPayload struct {
-	TicketID string `json:"ticket_id"`
-	Status   string `json:"status"`
-	Message  string `json:"message"`
-}
-
-var taskQueue chan CheckTask
 
 func handleCheck(w http.ResponseWriter, r *http.Request, store *budget.Store, cfg *Config) {
 	var req CheckRequest
@@ -67,24 +35,23 @@ func handleCheck(w http.ResponseWriter, r *http.Request, store *budget.Store, cf
 	}
 
 	task := CheckTask{
-		ID:         genTaskID(req.Code),
-		Request:    req,
+		ID:         GenTaskID(req.Code),
+		Code:       req.Code,
+		FlowID:     req.FlowID,
+		NodeID:     req.NodeID,
 		EnqueuedAt: time.Now(),
 		ClientIP:   r.RemoteAddr,
-		QueuePos:   len(taskQueue),
 	}
 
-	select {
-	case taskQueue <- task:
-		log.Printf("[Queue] 入队: taskID=%s code=%s flowId=%s nodeId=%s", task.ID, req.Code, req.FlowID, req.NodeID)
+	if Enqueue(task) {
+		log.Printf("[Queue] 入队: taskID=%s code=%s flowId=%s nodeId=%s", task.ID, task.Code, task.FlowID, task.NodeID)
 		writeJSON(w, 200, CheckResponse{
 			BudgetCheck: "1",
 			Success:     true,
 			Message:     "已入队等待处理",
 			TaskID:      task.ID,
-			Pending:     len(taskQueue),
 		})
-	default:
+	} else {
 		log.Printf("[Queue] 队列已满，拒绝: code=%s", req.Code)
 		writeJSON(w, 503, CheckResponse{BudgetCheck: "0", Message: "队列已满，请稍后重试"})
 	}
@@ -108,7 +75,12 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 }
 
 func processTask(task CheckTask, store *budget.Store) {
-	log.Printf("[Task] 开始处理: taskID=%s code=%s flowId=%s nodeId=%s", task.ID, task.Request.Code, task.Request.FlowID, task.Request.NodeID)
-	// TODO: 业务校验逻辑
-	log.Printf("[Task] 处理完成: taskID=%s (暂未实现业务逻辑)", task.ID)
+	webhook.Process(webhook.Task{
+		ID:         task.ID,
+		Code:       task.Code,
+		FlowID:     task.FlowID,
+		NodeID:     task.NodeID,
+		EnqueuedAt: task.EnqueuedAt,
+		ClientIP:   task.ClientIP,
+	})
 }

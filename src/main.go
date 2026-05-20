@@ -41,7 +41,7 @@ func main() {
 	if queueSize <= 0 {
 		queueSize = 100
 	}
-	taskQueue = make(chan CheckTask, queueSize)
+	InitQueue(queueSize)
 
 	var targets []budget.Target
 	for _, t := range cfg.BudgetTargets {
@@ -60,7 +60,7 @@ func main() {
 		budget.Sync(store, fetcher, syncCfg)
 		log.Println("[Init] 首次同步完成，开始消费队列")
 		go func() {
-			for task := range taskQueue {
+			for task := range QueueChan() {
 				processTask(task, store)
 			}
 		}()

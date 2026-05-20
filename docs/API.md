@@ -75,7 +75,7 @@ GET http://host:8000/api/config?password=root
 
 ### 4. 单据校验 `POST /api/webhook/budget-check`
 
-接收合思回调，将校验任务入队异步处理。
+接收合思回调，将校验任务入队异步处理。服务启动即可接收，首次同步完成后开始消费。
 
 **请求体:**
 ```json
@@ -89,16 +89,25 @@ GET http://host:8000/api/config?password=root
 **响应示例 (成功入队):**
 ```json
 {
+  "budget-check": "1",
   "success": true,
-  "message": "已入队等待处理"
+  "message": "已入队等待处理",
+  "task_id": "260520-a1b2c3-050334",
+  "pending": 3
 }
 ```
+
+**字段说明:**
+- `budget-check`: "1" 表示成功，"0" 表示失败（合思关键字匹配用）
+- `task_id`: 任务唯一ID，格式 `YYMMDD-随机6位-单号后6位`
+- `pending`: 入队时前面还有几条待处理
 
 **错误响应:**
 ```json
 {
+  "budget-check": "0",
   "success": false,
-  "message": "预算数据尚未同步，请稍后重试"
+  "message": "code、flowId、nodeId 不能为空"
 }
 ```
 
@@ -111,4 +120,4 @@ GET http://host:8000/api/config?password=root
 | `/api/status` | 无 | 正常工作 |
 | `/api/sync` | query `password` | 无需密码即可调用 |
 | `/api/config` | query `password` | 接口禁用（返回 404） |
-| `/api/ebot/check` | 无 | 正常工作 |
+| `/api/webhook/budget-check` | 无 | 正常工作 |
