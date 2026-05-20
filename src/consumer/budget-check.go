@@ -13,7 +13,12 @@ import (
 	"time"
 )
 
-// HistoryItem 处理历史
+var ExpenseNature = map[string]string{
+	"ID01LPD78hZRsr": "业务",
+	"ID01LPDisfN3qv": "管理",
+	"ID01LPDfjPcnyn": "生产",
+}
+
 type HistoryItem struct {
 	Time    string `json:"time"`
 	Code    string `json:"code"`
@@ -21,22 +26,19 @@ type HistoryItem struct {
 	Comment string `json:"comment"`
 }
 
-// Checker 校验器，持有共享依赖
 type Checker struct {
 	Client         *ekb.Client
 	Store          *budget.Store
 	SignKey        string
-	ExpenseNature  map[string]string
 	ExemptProjects map[string]bool
-	CostCenterID   string // 成本中心预算包 ID
-	ProjectID      string // 项目预算包 ID
+	CostCenterID   string
+	ProjectID      string
 	History        []HistoryItem
 	HistoryMax     int
 	mu             sync.Mutex
 }
 
-// NewChecker 创建校验器
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expenseNature map[string]string, exemptProjects []string, costCenterID, projectID string) *Checker {
+func NewChecker(client *ekb.Client, store *budget.Store, signKey string, exemptProjects []string, costCenterID, projectID string) *Checker {
 	exempt := make(map[string]bool, len(exemptProjects))
 	for _, id := range exemptProjects {
 		exempt[id] = true
@@ -45,7 +47,6 @@ func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expense
 		Client:         client,
 		Store:          store,
 		SignKey:        signKey,
-		ExpenseNature:  expenseNature,
 		ExemptProjects: exempt,
 		CostCenterID:   costCenterID,
 		ProjectID:      projectID,
@@ -56,8 +57,7 @@ func NewChecker(client *ekb.Client, store *budget.Store, signKey string, expense
 func (c *Checker) AddHistory(code, action, comment string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	item := HistoryItem{Time: time.Now().Format("15:04:05"), Code: code, Action: action, Comment: comment}
-	c.History = append([]HistoryItem{item}, c.History...)
+	c.History = append([]HistoryItem{{Time: time.Now().Format("15:04:05"), Code: code, Action: action, Comment: comment}}, c.History...)
 	if len(c.History) > c.HistoryMax {
 		c.History = c.History[:c.HistoryMax]
 	}
@@ -71,7 +71,6 @@ func (c *Checker) GetHistory() []HistoryItem {
 	return result
 }
 
-// Process 处理校验任务
 func (c *Checker) Process(task types.Task) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
@@ -90,7 +89,7 @@ func (c *Checker) Process(task types.Task) {
 	natureID, _ := form["u_费用性质"].(string)
 	costCenter, _ := form["E_system_costcenter"].(string)
 	project, _ := form["项目"].(string)
-	natureName := c.ExpenseNature[natureID]
+	natureName := ExpenseNature[natureID]
 
 	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 成本中心=%s 项目=%s 明细数=%d",
 		task.Code, natureID, natureName, costCenter, project, len(details))
@@ -127,26 +126,25 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 		return "refuse", "成本中心预算包未同步"
 	}
 
-	// 把树的 Root keys 提取成 set
 	rootSet := make(map[string]bool, len(tree.Root))
 	for k := range tree.Root {
 		rootSet[k] = true
 	}
 
-	// 向上查找祖先是否在预算树中
 	foundID, found := c.Client.FindAncestorInTree(costCenter, rootSet, 5)
 	if !found {
-		return "refuse", "成本中心不在预算内"
+		ccDim, _ := c.Client.GetDimension(costCenter)
+		ccName := costCenter
+		if ccDim != nil {
+			ccName = ccDim.Name
+		}
+		return "refuse", fmt.Sprintf("成本中心 %s(%s) 不在成本中心预算包内", ccName, costCenter)
 	}
-
-	_ = foundID // 命中的祖先 ID
-	log.Printf("[Consumer] 成本中心 %s 命中祖先 %s", costCenter, foundID)
 
 	if len(details) == 0 {
-		return "accept", "成本中心在预算内"
+		return "accept", "同意"
 	}
 
-	// 取命中节点下所有预算管控的费用档案
 	ccNode := tree.Root[foundID]
 	feeTypeBudget := make(map[string]*budget.Node)
 	for _, child := range ccNode.Children {
@@ -154,7 +152,6 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 			feeTypeBudget[k] = v
 		}
 	}
-	log.Printf("[Consumer] 费用档案总数: %d", len(feeTypeBudget))
 
 	var missing []string
 	for i, detail := range details {
@@ -176,14 +173,19 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 				continue
 			}
 		}
-		missing = append(missing, fmt.Sprintf("明细%d(%s)", i+1, feeType))
+		ftDim, _ := c.Client.GetDimension(feeType)
+		ftName := feeType
+		if ftDim != nil {
+			ftName = ftDim.Name
+		}
+		missing = append(missing, fmt.Sprintf("明细%d %s(%s)", i+1, ftName, feeType))
 	}
 
 	if len(missing) > 0 {
-		return "refuse", fmt.Sprintf("费用档案不在预算内: %s", joinStrings(missing, "、"))
+		return "refuse", fmt.Sprintf("%s 不在成本中心预算包内", joinStrings(missing, "、"))
 	}
 
-	return "accept", "成本中心+费用档案在预算内"
+	return "accept", "同意"
 }
 
 func (c *Checker) checkProduction(costCenter, project string, details []map[string]interface{}) (string, string) {
@@ -200,40 +202,46 @@ func (c *Checker) checkProduction(costCenter, project string, details []map[stri
 		return "refuse", "项目预算包未同步"
 	}
 
-	// 向上查找项目是否在预算树中
 	projectSet := make(map[string]bool, len(tree.Root))
 	for k := range tree.Root {
 		projectSet[k] = true
 	}
 	foundProjectID, found := c.Client.FindAncestorInTree(project, projectSet, 5)
 	if !found {
-		return "refuse", "项目不在预算内"
+		pjDim, _ := c.Client.GetDimension(project)
+		pjName := project
+		if pjDim != nil {
+			pjName = pjDim.Name
+		}
+		return "refuse", fmt.Sprintf("项目 %s(%s) 不在项目预算包内", pjName, project)
 	}
 
-	// 项目下有成本中心子预算时，必须命中
 	projectNode := tree.Root[foundProjectID]
 	if len(projectNode.Children) > 0 {
 		if costCenter == "" {
 			return "refuse", "项目要求成本中心但未填写"
 		}
-		// 成本中心也要向上查找
 		ccSet := make(map[string]bool, len(projectNode.Children))
 		for k := range projectNode.Children {
 			ccSet[k] = true
 		}
 		_, ccFound := c.Client.FindAncestorInTree(costCenter, ccSet, 5)
 		if !ccFound {
-			return "refuse", "成本中心不在项目预算内"
+			ccDim, _ := c.Client.GetDimension(costCenter)
+			ccName := costCenter
+			if ccDim != nil {
+				ccName = ccDim.Name
+			}
+			return "refuse", fmt.Sprintf("成本中心 %s(%s) 不在项目预算包内", ccName, costCenter)
 		}
 	}
 
-	// 再查成本中心预算包
 	action, comment := c.checkBusinessOrManage(costCenter, details)
 	if action == "refuse" {
 		return action, comment
 	}
 
-	return "accept", "项目+成本中心+费用档案全部在预算内"
+	return "accept", "同意"
 }
 
 func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[string]interface{}, error) {

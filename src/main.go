@@ -98,7 +98,7 @@ func initComponents() {
 	if len(cfg.BudgetTargets) >= 2 {
 		projectID = cfg.BudgetTargets[1].ID
 	}
-	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature, cfg.ExemptProjects, costCenterID, projectID)
+	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExemptProjects, costCenterID, projectID)
 }
 
 func mainLogic() {

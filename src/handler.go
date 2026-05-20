@@ -156,7 +156,7 @@ function doSync(){
 	}
 
 	natureHTML := ""
-	for id, name := range cfg.ExpenseNature {
+	for id, name := range consumer.ExpenseNature {
 		natureHTML += fmt.Sprintf(`<div class="row"><span class="label">%s</span><span class="value">%s</span></div>`, id, name)
 	}
 

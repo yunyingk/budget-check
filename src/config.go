@@ -45,7 +45,6 @@ type WebConfig struct {
 type Config struct {
 	Server          ServerConfig           `yaml:"server"`
 	Ekb             EkbConfig              `yaml:"ekuaibao"`
-	ExpenseNature   map[string]string      `yaml:"expense_nature"`
 	BudgetTargets   []BudgetTarget         `yaml:"budget_targets"`
 	ExemptProjects  []string               `yaml:"exempt_projects"`
 	Sync            SyncConfig             `yaml:"sync"`

@@ -1,2 +1,5 @@
 *.exe
 budget-check
+logs/
+config.yaml
+config/config.yaml

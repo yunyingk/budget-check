@@ -13,16 +13,8 @@ ekuaibao:
   app_secret: "d866a007-78a3-4bfd-972e-9ea1bf87a3d5"  # 应用 Secret
   sign_key: "l5fY6tdAf9W7"         # 出站消息签名密钥，用于回调审批
 
-# 费用性质 ID 映射
-# 合思单据中 u_费用性质 字段的值是 ID，需要映射为中文名称用于分支判断
-# 新增性质时在这里添加即可，代码无需改动
-expense_nature:
-  ID01LPD78hZRsr: "业务"
-  ID01LPDisfN3qv: "管理"
-  ID01LPDfjPcnyn: "生产"
-
 # 预算同步白名单及钻取深度
-# 只有 name 关键词匹配到的预算包才会被同步，depth 控制向下钻取几层子节点
+# 只有 id 匹配到的预算包才会被同步，depth 控制向下钻取几层子节点
 # depth=1 只拉一层，depth=3 拉三层（部门-档案-项目）
 # 未出现在此列表中的预算包会被跳过
 budget_targets:

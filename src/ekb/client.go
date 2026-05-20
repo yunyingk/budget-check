@@ -18,6 +18,11 @@ type Dimension struct {
 	ParentID string `json:"parentId"`
 }
 
+type dimCacheEntry struct {
+	dim     *Dimension
+	expires time.Time
+}
+
 // Client 合思 API 公共客户端，负责 token 管理和 HTTP 请求
 type Client struct {
 	Host   string
@@ -28,7 +33,7 @@ type Client struct {
 	expiry time.Time
 	client *http.Client
 
-	dimCache map[string]*Dimension
+	dimCache map[string]*dimCacheEntry
 	dimMu    sync.RWMutex
 }
 
@@ -38,7 +43,7 @@ func NewClient(host, appKey, secret string) *Client {
 		AppKey:   appKey,
 		Secret:   secret,
 		client:   &http.Client{Timeout: 15 * time.Second},
-		dimCache: make(map[string]*Dimension),
+		dimCache: make(map[string]*dimCacheEntry),
 	}
 }
 
@@ -92,14 +97,17 @@ func (c *Client) HostURL(path string) string {
 	return c.Host + path
 }
 
-// GetDimension 获取维度信息（带缓存）
+// GetDimension 获取维度信息（带缓存，30分钟过期）
 func (c *Client) GetDimension(id string) (*Dimension, error) {
 	c.dimMu.RLock()
-	if dim, ok := c.dimCache[id]; ok {
+	if entry, ok := c.dimCache[id]; ok && time.Now().Before(entry.expires) {
 		c.dimMu.RUnlock()
-		return dim, nil
+		return entry.dim, nil
 	}
 	c.dimMu.RUnlock()
+
+	// 清理过期缓存
+	c.cleanExpiredCache()
 
 	token, err := c.GetToken()
 	if err != nil {
@@ -128,10 +136,21 @@ func (c *Client) GetDimension(id string) (*Dimension, error) {
 	}
 
 	c.dimMu.Lock()
-	c.dimCache[id] = dim
+	c.dimCache[id] = &dimCacheEntry{dim: dim, expires: time.Now().Add(30 * time.Minute)}
 	c.dimMu.Unlock()
 
 	return dim, nil
+}
+
+func (c *Client) cleanExpiredCache() {
+	c.dimMu.Lock()
+	defer c.dimMu.Unlock()
+	now := time.Now()
+	for k, v := range c.dimCache {
+		if now.After(v.expires) {
+			delete(c.dimCache, k)
+		}
+	}
 }
 
 // FindAncestorInTree 向上查找祖先节点是否在树中
