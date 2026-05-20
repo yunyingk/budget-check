@@ -25,8 +25,9 @@ type BudgetTarget struct {
 }
 
 type SyncConfig struct {
-	IntervalMinutes int `yaml:"interval_minutes"`
-	Workers         int `yaml:"workers"`
+	IntervalMinutes int    `yaml:"interval_minutes"`
+	Workers         int    `yaml:"workers"`
+	Password        string `yaml:"password"`
 }
 
 type LogConfig struct {

@@ -71,8 +71,8 @@ func main() {
 		handleStatus(w, r, store)
 	})
 	mux.HandleFunc("/api/sync", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", 405)
+		if cfg.Sync.Password != "" && r.URL.Query().Get("password") != cfg.Sync.Password {
+			writeJSON(w, 403, map[string]string{"error": "密码错误"})
 			return
 		}
 		go func() {
