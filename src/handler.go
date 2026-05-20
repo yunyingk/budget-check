@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -24,10 +25,17 @@ type CheckTask struct {
 	ClientIP  string
 }
 
-func genTaskID() string {
-	b := make([]byte, 8)
+func genTaskID(code string) string {
+	b := make([]byte, 3)
 	rand.Read(b)
-	return hex.EncodeToString(b)
+	date := time.Now().Format("060102") // YYMMDD
+	suffix := code
+	if len(suffix) > 6 {
+		suffix = suffix[len(suffix)-6:]
+	} else if len(suffix) < 6 {
+		suffix = fmt.Sprintf("%06s", suffix) // 不足6位补0
+	}
+	return fmt.Sprintf("%s-%s-%s", date, hex.EncodeToString(b), suffix)
 }
 
 type CheckResponse struct {
@@ -58,7 +66,7 @@ func handleCheck(w http.ResponseWriter, r *http.Request, store *budget.Store, cf
 	}
 
 	task := CheckTask{
-		ID:       genTaskID(),
+		ID:       genTaskID(req.Code),
 		Request:  req,
 		Enqueued: time.Now(),
 		ClientIP: r.RemoteAddr,
