@@ -67,7 +67,7 @@ func (c *Checker) Process(task types.Task) {
 	case "业务", "管理":
 		action, comment = c.checkBusinessOrManage(costCenter, details)
 	case "生产":
-		action, comment = c.checkProduction(costCenter, project)
+		action, comment = c.checkProduction(costCenter, project, details)
 	default:
 		action = "refuse"
 		comment = fmt.Sprintf("未配置的性质ID: %s", natureID)
@@ -143,29 +143,26 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 }
 
 // checkProduction 生产费用：先查项目预算包的项目，再查项目下的成本中心
-// 豁免项目：不校验项目本身，只校验成本中心
-func (c *Checker) checkProduction(costCenter, project string) (string, string) {
+// 豁免项目：跳过项目校验，走业务/管理逻辑（成本中心+费用档案）
+// 非豁免：两个预算包都要命中
+func (c *Checker) checkProduction(costCenter, project string, details []map[string]interface{}) (string, string) {
 	if project == "" {
 		return "refuse", "生产费用缺少项目"
 	}
 
+	// 豁免项目：走和业务/管理一样的逻辑
+	if c.ExemptProjects[project] {
+		return c.checkBusinessOrManage(costCenter, details)
+	}
+
+	// === 非豁免：两个预算包都要命中 ===
+
+	// 第一个预算包：项目预算包
 	tree := c.Store.GetTreeByName("项目预算包")
 	if tree == nil {
-		log.Printf("[Consumer] 项目预算包未同步")
 		return "refuse", "项目预算包未同步"
 	}
 
-	// 豁免项目：跳过项目校验，只查成本中心
-	if c.ExemptProjects[project] {
-		if costCenter == "" {
-			return "accept", "公摊豁免（无成本中心）"
-		}
-		// 豁免项目也要查成本中心（如果有的话）
-		// TODO: 这里需要确认豁免项目的成本中心怎么校验
-		return "accept", "公摊豁免"
-	}
-
-	// 查项目
 	projectNode, ok := tree.Root[project]
 	if !ok {
 		return "refuse", "项目不在预算内"
@@ -176,14 +173,18 @@ func (c *Checker) checkProduction(costCenter, project string) (string, string) {
 		if costCenter == "" {
 			return "refuse", "项目要求成本中心但未填写"
 		}
-		if _, ok := projectNode.Children[costCenter]; ok {
-			return "accept", "项目+成本中心在预算内"
+		if _, ok := projectNode.Children[costCenter]; !ok {
+			return "refuse", "成本中心不在项目预算内"
 		}
-		return "refuse", "成本中心不在项目预算内"
 	}
 
-	// 项目下没有成本中心子预算，只命中项目即可
-	return "accept", "项目在预算内"
+	// 第二个预算包：成本中心预算包（和业务/管理一样的逻辑）
+	action, comment := c.checkBusinessOrManage(costCenter, details)
+	if action == "refuse" {
+		return action, comment
+	}
+
+	return "accept", "项目+成本中心+费用档案全部在预算内"
 }
 
 // fetchFlowData 获取单据表单和明细
