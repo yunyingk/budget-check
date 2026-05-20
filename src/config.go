@@ -28,7 +28,8 @@ type SyncConfig struct {
 }
 
 type LogConfig struct {
-	Level string `yaml:"level"`
+	Level     string `yaml:"level"`
+	Rotation  string `yaml:"rotation"`
 }
 
 type Config struct {

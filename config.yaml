@@ -34,6 +34,8 @@ budget_targets:
 sync:
   interval_minutes: 60  # 每隔多少分钟自动同步一次预算数据
 
-# 日志级别 (预留，暂未实现)
+# 日志配置
 logging:
-  level: "info"  # debug / info / warn / error
+  level: "info"           # debug / info / warn / error
+  rotation: "daily"       # 日志轮转周期: daily(每天) / weekly(每周) / monthly(每月)
+  # 文件命名示例: daily=2026-05-20.log  weekly=2026-W21.log  monthly=2026-05.log

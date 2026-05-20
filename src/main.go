@@ -17,6 +17,14 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
+
+	logger, err := NewRotatingLogger("logs", RotatePeriod(cfg.Logging.Rotation))
+	if err != nil {
+		log.Fatalf("初始化日志失败: %v", err)
+	}
+	defer logger.Close()
+	log.SetOutput(logger)
+
 	log.Printf("配置加载成功: 端口=%d, 合思主机=%s", cfg.Server.Port, cfg.Ekb.Host)
 
 	store := NewStore()
