@@ -1,0 +1,24 @@
+server:
+  port: 8000
+
+ekuaibao:
+  host: "https://app.ekuaibao.com"
+  app_key: "9c5b3631-0e6a-4b3e-afcd-7d6fcfc377ca"
+  app_secret: "d866a007-78a3-4bfd-972e-9ea1bf87a3d5"
+
+expense_nature:
+  ID01LPD78hZRsr: "业务"
+  ID01LPDisfN3qv: "管理"
+  ID01LPDfjPcnyn: "生产"
+
+budget_targets:
+  - name: "2026成本中心预算"
+    depth: 3
+  - name: "项目预算包"
+    depth: 1
+
+sync:
+  interval_minutes: 60
+
+logging:
+  level: "info"
