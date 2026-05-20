@@ -6,7 +6,7 @@
 
 1. 编译 Windows 可执行文件：
    ```bash
-   cd src && GOOS=windows GOARCH=amd64 go build -o budget-check.exe .
+   GOOS=windows GOARCH=amd64 go build -o budget-check.exe ./src
    ```
 
 2. 将 `budget-check.exe` 和 `config.yaml` 放到目标机器同一目录
@@ -20,7 +20,18 @@
 
 ## 配置
 
-编辑 `config.yaml`，修改合思密钥、同步间隔等。
+配置文件加载优先级：
+1. 命令行 `-config` 指定路径
+2. `config/config.yaml`（优先）
+3. `config.yaml`（兜底）
+
+编辑 `config.yaml`，修改合思密钥、同步间隔、日志轮转等。
+
+## 日志
+
+- 自动创建 `logs/` 目录，日志按周期轮转
+- 文件命名：daily=`2026-05-20.log`、weekly=`2026-W21.log`、monthly=`2026-05.log`
+- 在 `config.yaml` 的 `logging.rotation` 中配置周期
 
 ## 接口
 
