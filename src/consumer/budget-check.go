@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"strings"
 )
 
 // Checker 校验器，持有共享依赖
@@ -35,7 +34,7 @@ func (c *Checker) Process(task types.Task) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
 	// 1. 获取单据详情
-	form, err := c.fetchFlowForm(task.Code)
+	form, details, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
 		return
@@ -51,7 +50,8 @@ func (c *Checker) Process(task types.Task) {
 	project, _ := form["项目"].(string)
 
 	natureName := c.ExpenseNature[natureID]
-	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 成本中心=%s 项目=%s", task.Code, natureID, natureName, costCenter, project)
+	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 成本中心=%s 项目=%s 明细数=%d",
+		task.Code, natureID, natureName, costCenter, project, len(details))
 
 	// 3. 按费用性质分支校验
 	var action string
@@ -59,7 +59,7 @@ func (c *Checker) Process(task types.Task) {
 
 	switch natureName {
 	case "业务", "管理":
-		action, comment = c.checkBusinessOrManage(costCenter)
+		action, comment = c.checkBusinessOrManage(costCenter, details)
 	case "生产":
 		action, comment = c.checkProduction(costCenter, project)
 	default:
@@ -78,8 +78,9 @@ func (c *Checker) Process(task types.Task) {
 	log.Printf("[Consumer] 处理完成: taskID=%s", task.ID)
 }
 
-// checkBusinessOrManage 业务/管理费用：只查成本中心预算包
-func (c *Checker) checkBusinessOrManage(costCenter string) (string, string) {
+// checkBusinessOrManage 业务/管理费用：查成本中心预算包
+// 三层结构：成本中心 → 预算管控(跳过) → 费用档案
+func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]interface{}) (string, string) {
 	if costCenter == "" {
 		return "refuse", "缺少成本中心"
 	}
@@ -90,11 +91,49 @@ func (c *Checker) checkBusinessOrManage(costCenter string) (string, string) {
 		return "refuse", "成本中心预算包未同步"
 	}
 
-	if _, ok := tree.Root[costCenter]; ok {
+	// 第一层：查成本中心
+	ccNode, ok := tree.Root[costCenter]
+	if !ok {
+		return "refuse", "成本中心不在预算内"
+	}
+
+	// 第二层：预算管控（只有一个子节点，跳过，直接取它的 children）
+	var feeTypeBudget map[string]*budget.Node
+	for _, child := range ccNode.Children {
+		feeTypeBudget = child.Children // 预算管控下的费用档案
+		break
+	}
+
+	// 第三层：遍历明细，查每条的费用档案
+	if len(details) == 0 {
 		return "accept", "成本中心在预算内"
 	}
 
-	return "refuse", "成本中心不在预算内"
+	var missing []string
+	for i, detail := range details {
+		feeTypeForm, _ := detail["feeTypeForm"].(map[string]interface{})
+		if feeTypeForm == nil {
+			continue
+		}
+		feeType, _ := feeTypeForm["u_费用类型档案"].(string)
+		if feeType == "" {
+			continue
+		}
+
+		// 在预算管控的子节点中查找费用档案
+		if feeTypeBudget != nil {
+			if _, ok := feeTypeBudget[feeType]; ok {
+				continue // 找到，通过
+			}
+		}
+		missing = append(missing, fmt.Sprintf("明细%d费用档案(%s)", i+1, feeType))
+	}
+
+	if len(missing) > 0 {
+		return "refuse", fmt.Sprintf("费用档案不在预算内: %s", joinStrings(missing, "、"))
+	}
+
+	return "accept", "成本中心+费用档案在预算内"
 }
 
 // checkProduction 生产费用：先查项目预算包的项目，再查项目下的成本中心
@@ -130,12 +169,12 @@ func (c *Checker) checkProduction(costCenter, project string) (string, string) {
 	return "accept", "项目在预算内"
 }
 
-// fetchFlowForm 获取单据表单数据
-func (c *Checker) fetchFlowForm(code string) (map[string]interface{}, error) {
+// fetchFlowData 获取单据表单和明细
+func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[string]interface{}, error) {
 	u := c.Client.HostURL("/api/openapi/v1.1/flowDetails/byCode?code=" + code)
 	resp, err := c.Client.Get(u)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
@@ -144,10 +183,25 @@ func (c *Checker) fetchFlowForm(code string) (map[string]interface{}, error) {
 
 	val, _ := result["value"].(map[string]interface{})
 	if val == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
+
 	form, _ := val["form"].(map[string]interface{})
-	return form, nil
+	if form == nil {
+		return nil, nil, nil
+	}
+
+	// 提取明细
+	var details []map[string]interface{}
+	if rawDetails, ok := form["details"].([]interface{}); ok {
+		for _, d := range rawDetails {
+			if detail, ok := d.(map[string]interface{}); ok {
+				details = append(details, detail)
+			}
+		}
+	}
+
+	return form, details, nil
 }
 
 // callbackApproval 回调审批系统
@@ -179,7 +233,6 @@ func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error
 		return fmt.Errorf("API返回错误: status=%d body=%v", resp.StatusCode, result)
 	}
 
-	// 检查返回值
 	if val, ok := result["value"].(map[string]interface{}); ok {
 		if success, ok := val["success"].(bool); ok && !success {
 			return fmt.Errorf("审批回调失败: %v", val)
@@ -190,7 +243,13 @@ func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error
 	return nil
 }
 
-// joinErrors 合并错误信息
-func joinErrors(errs []string) string {
-	return strings.Join(errs, "、")
+func joinStrings(strs []string, sep string) string {
+	result := ""
+	for i, s := range strs {
+		if i > 0 {
+			result += sep
+		}
+		result += s
+	}
+	return result
 }
