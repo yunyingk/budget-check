@@ -5,24 +5,67 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"runtime"
 	"time"
 
 	"budget/src/budget"
 	"budget/src/consumer"
 	"budget/src/ekb"
 	"budget/src/webhook"
+
+	"golang.org/x/sys/windows/svc"
+)
+
+var (
+	cfg        *Config
+	store      *budget.Store
+	client     *ekb.Client
+	syncCfg    budget.SyncConfig
+	checker    *consumer.Checker
 )
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "配置文件路径（默认与exe同目录）")
 	syncNow := flag.Bool("sync", false, "立即执行一次同步后退出")
+	install := flag.Bool("install", false, "注册为 Windows 服务")
+	uninstall := flag.Bool("uninstall", false, "卸载 Windows 服务")
 	flag.Parse()
 
-	cfg, err := LoadConfig(*configPath)
+	// Windows 服务管理命令
+	if *install {
+		if runtime.GOOS != "windows" {
+			fmt.Println("服务注册仅支持 Windows")
+			os.Exit(1)
+		}
+		if err := installService(); err != nil {
+			fmt.Printf("注册服务失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("服务注册成功！启动: sc start BudgetCheck")
+		return
+	}
+	if *uninstall {
+		if runtime.GOOS != "windows" {
+			fmt.Println("服务卸载仅支持 Windows")
+			os.Exit(1)
+		}
+		if err := uninstallService(); err != nil {
+			fmt.Printf("卸载服务失败: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("服务已卸载")
+		return
+	}
+
+	// 加载配置
+	var err error
+	cfg, err = LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
+	// 初始化日志
 	logger, err := NewRotatingLogger("logs", RotatePeriod(cfg.Logging.Rotation))
 	if err != nil {
 		log.Fatalf("初始化日志失败: %v", err)
@@ -30,6 +73,31 @@ func main() {
 	defer logger.Close()
 	log.SetOutput(logger)
 
+	// 手动同步模式
+	if *syncNow {
+		initComponents()
+		budget.Sync(store, client, syncCfg)
+		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())
+		return
+	}
+
+	// Windows 服务模式 or 控制台模式
+	if runtime.GOOS == "windows" {
+		isWinService, _ := svc.IsWindowsService()
+		if isWinService {
+			if err := runService(); err != nil {
+				log.Fatalf("Windows 服务启动失败: %v", err)
+			}
+			return
+		}
+	}
+
+	// 控制台模式
+	mainLogic()
+}
+
+// initComponents 初始化所有组件
+func initComponents() {
 	log.Printf("配置加载成功: 端口=%d, 合思主机=%s", cfg.Server.Port, cfg.Ekb.Host)
 
 	workers := cfg.Sync.Workers
@@ -37,8 +105,8 @@ func main() {
 		workers = 10
 	}
 
-	store := budget.NewStore()
-	client := ekb.NewClient(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
+	store = budget.NewStore()
+	client = ekb.NewClient(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
 
 	queueSize := cfg.Sync.QueueSize
 	if queueSize <= 0 {
@@ -50,20 +118,19 @@ func main() {
 	for _, t := range cfg.BudgetTargets {
 		targets = append(targets, budget.Target{ID: t.ID, Name: t.Name, Depth: t.Depth})
 	}
-	syncCfg := budget.SyncConfig{Targets: targets, Workers: workers}
+	syncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
+	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature, cfg.ExemptProjects)
+}
 
-	if *syncNow {
-		budget.Sync(store, client, syncCfg)
-		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())
-		return
-	}
+// mainLogic 主业务逻辑（服务模式和控制台模式共用）
+func mainLogic() {
+	initComponents()
 
 	log.Println("[Init] 开始后台同步预算数据...")
 	go func() {
 		budget.Sync(store, client, syncCfg)
 		log.Println("[Init] 首次同步完成，开始消费队列")
 
-		checker := consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExpenseNature, cfg.ExemptProjects)
 		go func() {
 			for task := range QueueChan() {
 				func() {

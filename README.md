@@ -12,37 +12,31 @@ GOOS=windows GOARCH=amd64 go build -o budget-check.exe ./src
 
 ### 2. 部署到目标机器
 
-将以下文件放到同一目录（如 `C:\BudgetProject\`）：
-- `budget-check.exe`
-- `config.yaml`
-- `install.bat`（见下方）
+将 `budget-check.exe` 和 `config.yaml` 放到同一目录（如 `C:\BudgetProject\`）。
 
-### 3. 一键安装为 Windows 服务
-
-双击 `install.bat` 即可注册并启动服务：
+### 3. 注册为 Windows 服务
 
 ```bat
-@echo off
-nssm install BudgetAPI "%~dp0budget-check.exe"
-nssm set BudgetAPI AppDirectory "%~dp0"
-nssm set BudgetAPI AppStdout "%~dp0logs\service.log"
-nssm set BudgetAPI AppStderr "%~dp0logs\service.log"
-nssm start BudgetAPI
-echo 服务已安装并启动
-pause
+budget-check.exe -install
 ```
 
 卸载服务：
 
 ```bat
-@echo off
-nssm stop BudgetAPI
-nssm remove BudgetAPI confirm
-echo 服务已卸载
-pause
+budget-check.exe -uninstall
 ```
 
-> 需要先安装 [nssm](https://nssm.cc/)，或者用 `sc` 命令（Windows 自带，但功能有限）。
+> 程序自动注册为 Windows 服务，开机自启，无需额外安装任何工具。
+
+### 其他模式
+
+```bat
+# 控制台模式（调试用，直接运行即可）
+budget-check.exe
+
+# 手动同步一次后退出
+budget-check.exe -sync
+```
 
 ## 配置
 
@@ -115,12 +109,6 @@ pause
 项目预算包
 ├── 项目 (level 1) ← 校验
 │   └── 成本中心 (level 2) ← 如果存在则校验，不存在则跳过
-```
-
-## 手动同步
-
-```bash
-./budget-check.exe -sync -config config.yaml
 ```
 
 ## 架构
