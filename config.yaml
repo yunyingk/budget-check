@@ -25,12 +25,13 @@ expense_nature:
 # depth=1 只拉一层，depth=3 拉三层（部门-档案-项目）
 # 未出现在此列表中的预算包会被跳过
 budget_targets:
-  - id: "ID01T5nPu92vH9"                     # 预算包 ID（从合思后台获取，优先用 ID 精确匹配）
+  # depth 含义：包含根节点。depth=1 只有根节点本身，depth=2 根+子节点，depth=3 根+子节点+孙节点
+  - id: ""                     # 预算包 ID（从合思后台获取，优先用 ID 精确匹配）
     name: "2026成本中心预算"    # ID 为空时按名称关键词匹配
-    depth: 3                   # 向下钻取 3 层
+    depth: 4                   # 根(1) + 子节点(2) + 孙节点(3) + 曾孙(4)
   - id: "ID01RFKVaUa4q3"
     name: "项目预算包"
-    depth: 2
+    depth: 3                   # 根(1) + 子节点(2) + 孙节点(3)
 
 # 预算数据自动同步间隔
 sync:

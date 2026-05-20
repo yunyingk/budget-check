@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"budget/src/budget"
 )
 
 func main() {
@@ -32,22 +34,28 @@ func main() {
 		workers = 10
 	}
 
-	store := NewStore()
-	client := NewEkbClient(cfg)
+	store := budget.NewStore()
+	fetcher := budget.NewEkbFetcher(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
+
+	var targets []budget.Target
+	for _, t := range cfg.BudgetTargets {
+		targets = append(targets, budget.Target{ID: t.ID, Name: t.Name, Depth: t.Depth})
+	}
+	syncCfg := budget.SyncConfig{Targets: targets, Workers: workers}
 
 	if *syncNow {
-		SyncBudget(store, client, cfg.BudgetTargets, workers)
+		budget.Sync(store, fetcher, syncCfg)
 		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())
 		return
 	}
 
 	log.Println("[Init] 首次同步预算数据...")
-	SyncBudget(store, client, cfg.BudgetTargets, workers)
+	budget.Sync(store, fetcher, syncCfg)
 
 	go func() {
 		for {
 			time.Sleep(time.Duration(cfg.Sync.IntervalMinutes) * time.Minute)
-			SyncBudget(store, client, cfg.BudgetTargets, workers)
+			budget.Sync(store, fetcher, syncCfg)
 		}
 	}()
 
@@ -57,7 +65,7 @@ func main() {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		handleCheck(w, r, store, client, cfg)
+		handleCheck(w, r, store, cfg)
 	})
 	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatus(w, r, store)
@@ -67,7 +75,11 @@ func main() {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		handleSync(w, r, store, client, cfg, cfg.Sync.Workers)
+		go func() {
+			log.Println("[API] 收到手动同步请求")
+			budget.Sync(store, fetcher, syncCfg)
+		}()
+		writeJSON(w, 200, map[string]string{"message": "同步已启动"})
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
