@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -59,66 +60,94 @@ func SyncBudget(store *Store, client *EkbClient, targets []BudgetTarget, workers
 		}
 		queryURL := client.apiURL("/v2/budgets/" + realID + "/query")
 
-		currentNodes := []string{""}
-		totalNodes := 0
-
-		for level := 0; level < targetDepth; level++ {
-			if len(currentNodes) == 0 {
-				break
-			}
-			log.Printf("    [Layer %d] 处理 %d 个节点...", level+1, len(currentNodes))
-
-			type fetchResult struct {
-				rows     []DimEntry
-				children []string
-				err      error
-				nodeID   string
-				total    int
-			}
-
-			ch := make(chan fetchResult, len(currentNodes))
-			sem := make(chan struct{}, workers)
-			var wg sync.WaitGroup
-
-			for _, nodeID := range currentNodes {
-				wg.Add(1)
-				go func(nid string) {
-					defer wg.Done()
-					sem <- struct{}{}
-					defer func() { <-sem }()
-					rows, children, total, err := fetchNodeChildren(client, token, queryURL, nid)
-					ch <- fetchResult{rows: rows, children: children, err: err, nodeID: nid, total: total}
-				}(nodeID)
-			}
-
-			go func() {
-				wg.Wait()
-				close(ch)
-			}()
-
-			var allRows []DimEntry
-			var nextIDs []string
-			for res := range ch {
-				if res.err != nil {
-					log.Printf("    [Warn] 节点 %s 失败: %v", res.nodeID, res.err)
-					continue
-				}
-				if res.total > 0 && totalNodes == 0 {
-					log.Printf("    [Layer %d] 预计子节点总量: %d", level+1, res.total-1)
-				}
-				allRows = append(allRows, res.rows...)
-				nextIDs = append(nextIDs, res.children...)
-				totalNodes++
-			}
-
-			store.BatchPut(allRows)
-			currentNodes = nextIDs
-		}
-		total += totalNodes
-		log.Printf("    -> %s 完成", bName)
+		n := syncBudgetTarget(store, client, token, queryURL, targetDepth, workers)
+		total += n
+		log.Printf("    -> %s 完成, 节点数: %d", bName, n)
 	}
 
-	log.Printf("[Sync] 同步完成! 节点数: %d, 耗时: %v, 缓存条目: %d", total, time.Since(start), store.Count())
+	log.Printf("[Sync] 同步完成! 耗时: %v, 缓存条目: %d", time.Since(start), store.Count())
+}
+
+type nodeTask struct {
+	nodeID string
+	depth  int
+}
+
+type nodeResult struct {
+	rows     []DimEntry
+	children []string
+	total    int
+	err      error
+	task     nodeTask
+}
+
+func syncBudgetTarget(store *Store, client *EkbClient, token, queryURL string, maxDepth, workers int) int {
+	tasks := make(chan nodeTask, 50000)
+	results := make(chan nodeResult, 50000)
+
+	var pendingCount int64
+	pendingCount++ // root node
+	tasks <- nodeTask{nodeID: "", depth: 0}
+
+	// 启动 worker 池
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for task := range tasks {
+				rows, children, total, err := fetchNodeChildren(client, token, queryURL, task.nodeID, workers)
+				results <- nodeResult{
+					rows:     rows,
+					children: children,
+					total:    total,
+					err:      err,
+					task:     task,
+				}
+			}
+		}()
+	}
+
+	// 关闭 tasks 后等 workers 完成, 再关 results
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	totalNodes := 0
+	var allRows []DimEntry
+	var mu sync.Mutex
+
+	for res := range results {
+		if res.err != nil {
+			log.Printf("    [Warn] 节点 %s depth=%d 失败: %v", res.task.nodeID, res.task.depth, res.err)
+		} else {
+			if res.total > 0 && totalNodes == 0 {
+				log.Printf("    根节点子项总量: %d", res.total-1)
+			}
+
+			mu.Lock()
+			allRows = append(allRows, res.rows...)
+			mu.Unlock()
+
+			// 发现子节点且未到最大深度，扔进任务队列
+			if res.task.depth < maxDepth-1 {
+				for _, childID := range res.children {
+					atomic.AddInt64(&pendingCount, 1)
+					tasks <- nodeTask{nodeID: childID, depth: res.task.depth + 1}
+				}
+			}
+			totalNodes++
+		}
+
+		// 所有任务处理完毕，关闭任务通道
+		if atomic.AddInt64(&pendingCount, -1) == 0 {
+			close(tasks)
+		}
+	}
+
+	store.BatchPut(allRows)
+	return totalNodes
 }
 
 func fetchBudgetList(client *EkbClient, token string) ([]map[string]interface{}, error) {
@@ -149,94 +178,166 @@ func fetchBudgetList(client *EkbClient, token string) ([]map[string]interface{},
 	return budgets, nil
 }
 
-func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string) ([]DimEntry, []string, int, error) {
-	var allRows []DimEntry
-	var nextIDs []string
-	totalCount := 0
-	offset := 0
+func fetchNodeChildren(client *EkbClient, token, queryURL, nodeID string, workers int) ([]DimEntry, []string, int, error) {
 	pageSize := 100
 
-	for {
-		params := url.Values{
-			"accessToken": {token},
-			"start":       {intToStr(offset)},
-			"count":       {intToStr(pageSize)},
-		}
-		if nodeID != "" {
-			params.Set("nodeId", nodeID)
-		}
+	// 先请求第一页，拿到 count 总数
+	params := url.Values{
+		"accessToken": {token},
+		"start":       {"0"},
+		"count":       {intToStr(pageSize)},
+	}
+	if nodeID != "" {
+		params.Set("nodeId", nodeID)
+	}
 
-		resp, err := client.client.Get(queryURL + "?" + params.Encode())
-		if err != nil {
-			return allRows, nextIDs, 0, err
-		}
+	resp, err := client.client.Get(queryURL + "?" + params.Encode())
+	if err != nil {
+		return nil, nil, 0, err
+	}
 
-		var result map[string]interface{}
-		json.NewDecoder(resp.Body).Decode(&result)
-		resp.Body.Close()
+	var result map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&result)
+	resp.Body.Close()
 
-		val, _ := result["value"].(map[string]interface{})
-		nodes, _ := val["nodes"].([]interface{})
-		if len(nodes) == 0 {
-			break
-		}
+	val, _ := result["value"].(map[string]interface{})
+	nodes, _ := val["nodes"].([]interface{})
 
-		// 从 API 响应中取 count（节点+子节点总数）
-		if c, ok := val["count"].(float64); ok && int(c) > 0 {
-			totalCount = int(c)
-		}
+	totalCount := 0
+	if c, ok := val["count"].(float64); ok && int(c) > 0 {
+		totalCount = int(c)
+	}
 
-		// 每页第一条是节点自身，子节点从第二条开始
-		if len(nodes) == 1 {
-			// 只有自身，没有子节点
-			break
-		}
-		children := nodes[1:]
+	if len(nodes) == 0 || len(nodes) == 1 {
+		return nil, nil, totalCount, nil
+	}
 
-		for _, ch := range children {
-			node, _ := ch.(map[string]interface{})
-			nID, _ := node["nodeId"].(string)
-			nName, _ := node["name"].(string)
-			if nName == "" {
-				nName, _ = node["code"].(string)
+	allRows, nextIDs := parseNodes(nodes[1:])
+
+	// 只有一页，直接返回
+	if len(nodes)-1 < pageSize {
+		return allRows, nextIDs, totalCount, nil
+	}
+
+	// 并发拉取剩余页
+	childCount := totalCount - 1 // 总子节点数（去掉自身）
+	if childCount <= 0 {
+		childCount = len(nodes) - 1
+	}
+	totalPages := (childCount + pageSize - 1) / pageSize
+	if totalPages <= 1 {
+		return allRows, nextIDs, totalCount, nil
+	}
+
+	type pageResult struct {
+		rows     []DimEntry
+		children []string
+		err      error
+		page     int
+	}
+
+	ch := make(chan pageResult, totalPages-1)
+	sem := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+
+	for page := 1; page < totalPages; page++ {
+		wg.Add(1)
+		go func(p int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			offset := p * pageSize
+			pParams := url.Values{
+				"accessToken": {token},
+				"start":       {intToStr(offset)},
+				"count":       {intToStr(pageSize)},
 			}
-			isLeaf, _ := node["isLeaf"].(bool)
-
-			if !isLeaf {
-				nextIDs = append(nextIDs, nID)
+			if nodeID != "" {
+				pParams.Set("nodeId", nodeID)
 			}
 
-			contents, _ := node["content"].([]interface{})
-			for _, c := range contents {
-				content, _ := c.(map[string]interface{})
-				dimCode, _ := content["contentId"].(string)
-				dimID := strings.TrimSpace(fmt.Sprintf("%v", content["dimensionId"]))
-
-				dimType := "UNKNOWN"
-				if dimID == "E_system_costcenter" || strings.Contains(strings.ToLower(dimID), "costcenter") {
-					dimType = "DEPARTMENT"
-				} else if dimID == "u_费用类型档案" || strings.Contains(dimID, "费用类型") {
-					dimType = "ARCHIVE"
-				} else if dimID == "项目" || strings.Contains(strings.ToLower(dimID), "project") || fmt.Sprintf("%v", content["dimensionType"]) == "PROJECT" {
-					dimType = "PROJECT"
-				}
-
-				if dimType != "UNKNOWN" && dimCode != "" {
-					allRows = append(allRows, DimEntry{
-						DimCode:  dimCode,
-						DimType:  dimType,
-						NodeName: nName,
-					})
-				}
+			pResp, pErr := client.client.Get(queryURL + "?" + pParams.Encode())
+			if pErr != nil {
+				ch <- pageResult{err: pErr, page: p}
+				return
 			}
-		}
 
-		// 如果子节点数不足 pageSize，说明没有下一页了
-		if len(children) < pageSize {
-			break
+			var pResult map[string]interface{}
+			json.NewDecoder(pResp.Body).Decode(&pResult)
+			pResp.Body.Close()
+
+			pVal, _ := pResult["value"].(map[string]interface{})
+			pNodes, _ := pVal["nodes"].([]interface{})
+
+			if len(pNodes) <= 1 {
+				ch <- pageResult{page: p}
+				return
+			}
+
+			rows, children := parseNodes(pNodes[1:])
+			ch <- pageResult{rows: rows, children: children, page: p}
+		}(page)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
+
+	for pr := range ch {
+		if pr.err != nil {
+			log.Printf("    [Warn] 分页请求失败 page=%d: %v", pr.page, pr.err)
+			continue
 		}
-		offset += pageSize
+		allRows = append(allRows, pr.rows...)
+		nextIDs = append(nextIDs, pr.children...)
 	}
 
 	return allRows, nextIDs, totalCount, nil
+}
+
+func parseNodes(nodes []interface{}) ([]DimEntry, []string) {
+	var rows []DimEntry
+	var nextIDs []string
+
+	for _, n := range nodes {
+		node, _ := n.(map[string]interface{})
+		nID, _ := node["nodeId"].(string)
+		nName, _ := node["name"].(string)
+		if nName == "" {
+			nName, _ = node["code"].(string)
+		}
+		isLeaf, _ := node["isLeaf"].(bool)
+
+		if !isLeaf {
+			nextIDs = append(nextIDs, nID)
+		}
+
+		contents, _ := node["content"].([]interface{})
+		for _, c := range contents {
+			content, _ := c.(map[string]interface{})
+			dimCode, _ := content["contentId"].(string)
+			dimID := strings.TrimSpace(fmt.Sprintf("%v", content["dimensionId"]))
+
+			dimType := "UNKNOWN"
+			if dimID == "E_system_costcenter" || strings.Contains(strings.ToLower(dimID), "costcenter") {
+				dimType = "DEPARTMENT"
+			} else if dimID == "u_费用类型档案" || strings.Contains(dimID, "费用类型") {
+				dimType = "ARCHIVE"
+			} else if dimID == "项目" || strings.Contains(strings.ToLower(dimID), "project") || fmt.Sprintf("%v", content["dimensionType"]) == "PROJECT" {
+				dimType = "PROJECT"
+			}
+
+			if dimType != "UNKNOWN" && dimCode != "" {
+				rows = append(rows, DimEntry{
+					DimCode:  dimCode,
+					DimType:  dimType,
+					NodeName: nName,
+				})
+			}
+		}
+	}
+
+	return rows, nextIDs
 }
