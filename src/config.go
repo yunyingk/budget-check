@@ -28,6 +28,7 @@ type SyncConfig struct {
 	IntervalMinutes int    `yaml:"interval_minutes"`
 	Workers         int    `yaml:"workers"`
 	Password        string `yaml:"password"`
+	QueueSize       int    `yaml:"queue_size"`
 }
 
 type LogConfig struct {

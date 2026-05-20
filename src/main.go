@@ -37,6 +37,12 @@ func main() {
 	store := budget.NewStore()
 	fetcher := budget.NewEkbFetcher(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
 
+	queueSize := cfg.Sync.QueueSize
+	if queueSize <= 0 {
+		queueSize = 100
+	}
+	taskQueue = make(chan CheckTask, queueSize)
+
 	var targets []budget.Target
 	for _, t := range cfg.BudgetTargets {
 		targets = append(targets, budget.Target{ID: t.ID, Name: t.Name, Depth: t.Depth})
@@ -49,10 +55,15 @@ func main() {
 		return
 	}
 
-	log.Println("[Init] 首次同步预算数据...")
-	budget.Sync(store, fetcher, syncCfg)
-
+	log.Println("[Init] 开始后台同步预算数据...")
 	go func() {
+		budget.Sync(store, fetcher, syncCfg)
+		log.Println("[Init] 首次同步完成，开始消费队列")
+		go func() {
+			for task := range taskQueue {
+				processTask(task, store)
+			}
+		}()
 		for {
 			time.Sleep(time.Duration(cfg.Sync.IntervalMinutes) * time.Minute)
 			budget.Sync(store, fetcher, syncCfg)
@@ -60,7 +71,7 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/ebot/check", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/webhook/budget-check", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", 405)
 			return

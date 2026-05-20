@@ -73,24 +73,32 @@ GET http://host:8000/api/config?password=root
 
 ---
 
-### 4. 单据校验 `POST /api/ebot/check`（待实现）
+### 4. 单据校验 `POST /api/webhook/budget-check`
 
-接收合思机器人回调，校验单据预算。
+接收合思回调，将校验任务入队异步处理。
 
 **请求体:**
 ```json
 {
-  "ticket_id": "单据ID",
-  "callback_url": "回调地址（可选）"
+  "code": "HS2026050334",
+  "flowId": "ID01T0bZEtkW1G",
+  "nodeId": "FLOW:1357809991:1128586113"
 }
 ```
 
-**响应示例:**
+**响应示例 (成功入队):**
 ```json
 {
-  "code": 200,
-  "message": "处理中",
-  "ticket_id": "xxx"
+  "success": true,
+  "message": "已入队等待处理"
+}
+```
+
+**错误响应:**
+```json
+{
+  "success": false,
+  "message": "预算数据尚未同步，请稍后重试"
 }
 ```
 
