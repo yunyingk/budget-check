@@ -153,10 +153,10 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		var wg sync.WaitGroup
 
 		for _, task := range pendingDrills {
+			sem <- struct{}{}
 			wg.Add(1)
 			go func(t drillTask) {
 				defer wg.Done()
-				sem <- struct{}{}
 				defer func() { <-sem }()
 				nodes, _, _, err := fetchNodes(client, queryURL, t.nodeID, token, workers)
 				ch <- drillResult{parent: t.parent, children: nodes, task: t, err: err}
@@ -278,10 +278,10 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 	var wg sync.WaitGroup
 
 	for page := 1; page < totalPages; page++ {
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(p int) {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			offset := p * pageSize

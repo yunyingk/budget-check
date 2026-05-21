@@ -15,3 +15,7 @@ func handleUninstall() {
 func tryRunAsService() bool {
 	return false
 }
+
+func showInteractiveMenu() {
+	fmt.Println("交互式菜单仅支持 Windows")
+}
