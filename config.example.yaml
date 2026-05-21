@@ -1,0 +1,52 @@
+# 预算校验服务配置文件
+# 部署时与 budget-check.exe 放在同一目录
+
+# 服务端口配置
+server:
+  port: 8000  # HTTP 服务监听端口
+
+# 合思开放平台配置
+# 从合思管理员后台获取，用于调用合思 API 获取 Token
+ekuaibao:
+  host: "https://app.ekuaibao.com"  # 合思 API 域名，不带路径
+  app_key: "your-app-key-here"      # 应用 Key
+  app_secret: "your-app-secret-here" # 应用 Secret
+  sign_key: "your-sign-key-here"    # 出站消息签名密钥，用于回调审批
+
+# 预算同步白名单及钻取深度
+# 只有 id 匹配到的预算包才会被同步，depth 控制向下钻取几层子节点
+# depth=1 只拉一层，depth=3 拉三层（部门-档案-项目）
+# 未出现在此列表中的预算包会被跳过
+budget_targets:
+  # depth 含义：包含根节点。depth=1 只有根节点本身，depth=2 根+子节点，depth=3 根+子节点+孙节点
+  - id: "ID01T5nPu92vH9"        # 2026成本中心预算包
+    name: "成本中心预算"
+    depth: 99
+  - id: "ID01RFKVaUa4q3"        # 项目预算包
+    name: "项目预算"
+    depth: 99
+
+# 生产费用豁免项目 ID
+# 命中这些 ID 的项目走公摊豁免分支：不校验项目本身，只校验成本中心和费用档案
+# 具体 ID 由客户配置
+exempt_projects: []
+
+# 预算数据自动同步间隔
+sync:
+  interval_minutes: 60  # 每隔多少分钟自动同步一次预算数据
+  workers: 10           # 同步并发数
+  password: "root"      # 手动触发同步的密码，为空则不需要密码
+                        # 请求示例: GET/POST /api/sync?password=root
+  queue_size: 100       # 校验任务队列最大长度
+
+# 日志配置
+logging:
+  level: "info"           # debug / info / warn / error
+  rotation: "daily"       # 日志轮转周期: daily(每天) / weekly(每周) / monthly(每月)
+  # 文件命名示例: daily=2026-05-20.log  weekly=2026-W21.log  monthly=2026-05.log
+
+# Web 管理页面（可选）
+# 启用后访问 / 查看服务状态和预算信息
+web:
+  enabled: true           # 设为 true 启用管理页面
+  password: ""            # 访问密码，为空则不需要密码
