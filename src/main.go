@@ -58,6 +58,9 @@ func main() {
 		return
 	}
 
+	// 非服务模式（双击运行/控制台）同时输出到控制台，方便调试
+	logger.SetAlsoStdout()
+
 	// 无参数时显示交互式菜单（双击运行）
 	if flag.NFlag() == 0 {
 		showInteractiveMenu()

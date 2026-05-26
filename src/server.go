@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"budget/src/budget"
@@ -20,6 +21,7 @@ var (
 	syncCfg budget.SyncConfig
 	checker *consumer.Checker
 	storeMu sync.RWMutex
+	syncing atomic.Bool
 )
 
 func initComponents() {
@@ -57,6 +59,8 @@ func initComponents() {
 }
 
 func doSync() {
+	syncing.Store(true)
+	defer syncing.Store(false)
 	storeMu.Lock()
 	defer storeMu.Unlock()
 	budget.Sync(store, client, syncCfg)
@@ -98,7 +102,7 @@ func mainLogic() {
 				http.NotFound(w, r)
 				return
 			}
-			handleHome(w, r, cfg)
+			handleHome(w, r, cfg, store)
 		})
 		mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, checker)

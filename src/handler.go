@@ -28,6 +28,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store) {
 		"status":        "ok",
 		"count":         store.Count(),
 		"sync_progress": store.SyncProgress(),
+		"is_syncing":    syncing.Load(),
 		"last_sync_at":  lastSyncStr,
 		"memory_mb":     bToMB(m.Alloc),
 		"goroutines":    runtime.NumGoroutine(),
@@ -40,7 +41,7 @@ func handleHistory(w http.ResponseWriter, r *http.Request, checker *consumer.Che
 
 func bToMB(b uint64) uint64 { return b / 1024 / 1024 }
 
-func handleHome(w http.ResponseWriter, r *http.Request, cfg *Config) {
+func handleHome(w http.ResponseWriter, r *http.Request, cfg *Config, store *budget.Store) {
 	if !cfg.Web.Enabled {
 		http.Error(w, "Web 管理页面未启用", http.StatusNotFound)
 		return
@@ -71,6 +72,7 @@ h1{font-size:18px;margin-bottom:16px}
 .tag-ok{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f}
 .tag-accept{background:#f6ffed;color:#52c41a}
 .tag-refuse{background:#fff2f0;color:#ff4d4f}
+.tag-warn{background:#fffbe6;color:#faad14;border:1px solid #ffe58f}
 .btn{padding:6px 14px;border:none;border-radius:4px;cursor:pointer;font-size:12px;text-decoration:none;display:inline-block}
 .btn-primary{background:#1677ff;color:#fff}
 .btn-primary:hover{background:#4096ff}
@@ -91,6 +93,7 @@ h1{font-size:18px;margin-bottom:16px}
     <div id="status">
       <div class="row"><span class="label">缓存条目</span><span class="value" id="count">-</span></div>
       <div class="row"><span class="label">已拉取</span><span class="value" id="fetched">-</span></div>
+      <div class="row"><span class="label">同步状态</span><span class="value" id="syncState">-</span></div>
       <div class="row"><span class="label">上次同步</span><span class="value" id="lastSync">-</span></div>
       <div class="row"><span class="label">同步间隔</span><span class="value">%d 分钟</span></div>
       <div class="row"><span class="label">队列容量</span><span class="value">%d</span></div>
@@ -127,6 +130,14 @@ function refresh(){
     var sp=d.sync_progress||0;
     var spText=sp>0?sp+' 条':'-';
     document.getElementById('fetched').textContent=spText;
+    var syncEl=document.getElementById('syncState');
+    if(d.is_syncing){
+      syncEl.innerHTML='<span class="tag tag-warn">同步中...</span>';
+    }else if(d.last_sync_at){
+      syncEl.innerHTML='<span class="tag tag-ok">同步完成</span>';
+    }else{
+      syncEl.textContent='未同步';
+    }
     document.getElementById('lastSync').textContent=d.last_sync_at||'未同步';
     document.getElementById('memory').textContent=d.memory_mb+' MB';
     document.getElementById('goroutines').textContent=d.goroutines;
@@ -154,8 +165,9 @@ function doSync(){
 </html>`
 
 	targetsHTML := ""
-	for _, t := range cfg.BudgetTargets {
-		targetsHTML += fmt.Sprintf(`<div class="row"><span class="label">%s</span><span class="value"><span class="tag tag-ok">深度 %d</span></span></div>`, t.Name, t.Depth)
+	for _, tree := range store.Trees() {
+		count := store.GetTreeNodeCount(tree.ID)
+		targetsHTML += fmt.Sprintf(`<div class="row"><span class="label">%s</span><span class="value"><span class="tag tag-ok">%d 节点</span></span></div>`, tree.Name, count)
 	}
 
 	natureHTML := ""

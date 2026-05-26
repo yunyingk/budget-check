@@ -33,15 +33,17 @@ type Store struct {
 	trees        []*Tree          // 所有预算包
 	index        map[string]*Node // dimCode → 节点索引，跨所有预算包
 	treeOf       map[string]*Tree // dimCode → 所属预算包
+	treeCount    map[string]int   // tree ID → 节点数
 	updatedAt    time.Time
 	syncProgress atomic.Int64 // 当前同步进度（实时）
 }
 
 func NewStore() *Store {
 	return &Store{
-		trees:  make([]*Tree, 0),
-		index:  make(map[string]*Node),
-		treeOf: make(map[string]*Tree),
+		trees:     make([]*Tree, 0),
+		index:     make(map[string]*Node),
+		treeOf:    make(map[string]*Tree),
+		treeCount: make(map[string]int),
 	}
 }
 
@@ -72,6 +74,7 @@ func (s *Store) indexNode(dimCode string, node *Node, tree *Tree) {
 	defer s.mu.Unlock()
 	s.index[dimCode] = node
 	s.treeOf[dimCode] = tree
+	s.treeCount[tree.ID]++
 	s.syncProgress.Add(1)
 }
 
@@ -79,6 +82,7 @@ func (s *Store) buildIndex(node *Node, tree *Tree) {
 	for dimCode, child := range node.Children {
 		s.index[dimCode] = child
 		s.treeOf[dimCode] = tree
+		s.treeCount[tree.ID]++
 		s.buildIndex(child, tree)
 	}
 }
@@ -129,6 +133,7 @@ func (s *Store) Clear() {
 	s.trees = make([]*Tree, 0)
 	s.index = make(map[string]*Node)
 	s.treeOf = make(map[string]*Tree)
+	s.treeCount = make(map[string]int)
 }
 
 // Replace 原子替换整个 store（同步用）
@@ -171,4 +176,10 @@ func (s *Store) IncSyncProgress() {
 
 func (s *Store) SyncProgress() int64 {
 	return s.syncProgress.Load()
+}
+
+func (s *Store) GetTreeNodeCount(treeID string) int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.treeCount[treeID]
 }

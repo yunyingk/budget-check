@@ -35,7 +35,6 @@ func NewRotatingLogger(dir string, period RotatePeriod) (*RotatingLogger, error)
 	l := &RotatingLogger{
 		dir:    dir,
 		period: period,
-		writer: os.Stdout,
 	}
 
 	if err := l.rotate(); err != nil {
@@ -76,9 +75,20 @@ func (l *RotatingLogger) rotate() error {
 
 	l.current = target
 	l.file = f
-	l.writer = io.MultiWriter(os.Stdout, f)
-	log.SetOutput(l.writer)
+	l.writer = f
+	log.SetOutput(l)
 	return nil
+}
+
+// SetAlsoStdout 同时输出到标准输出（控制台模式用）
+func (l *RotatingLogger) SetAlsoStdout() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.file != nil {
+		l.writer = io.MultiWriter(os.Stdout, l.file)
+	} else {
+		l.writer = os.Stdout
+	}
 }
 
 func (l *RotatingLogger) Write(p []byte) (n int, err error) {
@@ -88,7 +98,11 @@ func (l *RotatingLogger) Write(p []byte) (n int, err error) {
 	if err := l.rotate(); err != nil {
 		return os.Stderr.Write(p)
 	}
-	return l.writer.Write(p)
+	n, err = l.writer.Write(p)
+	if l.file != nil {
+		l.file.Sync()
+	}
+	return n, err
 }
 
 func (l *RotatingLogger) Close() error {
