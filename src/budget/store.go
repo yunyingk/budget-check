@@ -74,7 +74,9 @@ func (s *Store) indexNode(dimCode string, node *Node, tree *Tree) {
 	defer s.mu.Unlock()
 	s.index[dimCode] = node
 	s.treeOf[dimCode] = tree
-	s.treeCount[tree.ID]++
+	if node.IsLeaf {
+		s.treeCount[tree.ID]++
+	}
 	s.syncProgress.Add(1)
 }
 
@@ -82,7 +84,9 @@ func (s *Store) buildIndex(node *Node, tree *Tree) {
 	for dimCode, child := range node.Children {
 		s.index[dimCode] = child
 		s.treeOf[dimCode] = tree
-		s.treeCount[tree.ID]++
+		if child.IsLeaf {
+			s.treeCount[tree.ID]++
+		}
 		s.buildIndex(child, tree)
 	}
 }
