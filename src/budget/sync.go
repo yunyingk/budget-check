@@ -120,6 +120,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 	}
 
 	var pendingDrills []drillTask
+	drilled := make(map[string]bool)
 	for _, rn := range rootNodes {
 		node := &Node{
 			DimCode:  rn.dimCode,
@@ -130,7 +131,8 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		}
 		tree.Root[rn.dimCode] = node
 		store.indexNode(rn.dimCode, node, tree)
-		if !rn.isLeaf && maxDepth > 1 {
+		if !rn.isLeaf && maxDepth > 1 && !drilled[rn.nodeID] {
+			drilled[rn.nodeID] = true
 			pendingDrills = append(pendingDrills, drillTask{parent: node.Children, nodeID: rn.nodeID, depth: 1})
 		}
 	}
@@ -185,7 +187,8 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 				}
 				res.parent[rn.dimCode] = node
 				store.indexNode(rn.dimCode, node, tree)
-				if !rn.isLeaf && res.task.depth+1 < maxDepth {
+				if !rn.isLeaf && res.task.depth+1 < maxDepth && !drilled[rn.nodeID] {
+					drilled[rn.nodeID] = true
 					nextDrills = append(nextDrills, drillTask{parent: node.Children, nodeID: rn.nodeID, depth: res.task.depth + 1})
 				}
 			}
