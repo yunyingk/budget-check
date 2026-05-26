@@ -52,8 +52,21 @@ func runService() error {
 type budgetService struct{}
 
 func (s *budgetService) Execute(args []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			fmt.Fprintf(os.Stderr, "[Service] panic: %v\n", rec)
+		}
+	}()
+
 	status <- svc.Status{State: svc.StartPending}
-	go mainLogic()
+	go func() {
+		defer func() {
+			if rec := recover(); rec != nil {
+				fmt.Fprintf(os.Stderr, "[mainLogic] panic: %v\n", rec)
+			}
+		}()
+		mainLogic()
+	}()
 	status <- svc.Status{
 		State:   svc.Running,
 		Accepts: svc.AcceptStop | svc.AcceptShutdown,

@@ -2,6 +2,7 @@ package budget
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,11 +29,12 @@ type Tree struct {
 // Store 内存缓存，按预算包存储树形结构
 // 同时保留 dimCode → Node 的全局快速查找索引
 type Store struct {
-	mu        sync.RWMutex
-	trees     []*Tree            // 所有预算包
-	index     map[string]*Node   // dimCode → 节点索引，跨所有预算包
-	treeOf    map[string]*Tree   // dimCode → 所属预算包
-	updatedAt time.Time
+	mu           sync.RWMutex
+	trees        []*Tree          // 所有预算包
+	index        map[string]*Node // dimCode → 节点索引，跨所有预算包
+	treeOf       map[string]*Tree // dimCode → 所属预算包
+	updatedAt    time.Time
+	syncProgress atomic.Int64 // 当前同步进度（实时）
 }
 
 func NewStore() *Store {
@@ -70,6 +72,7 @@ func (s *Store) indexNode(dimCode string, node *Node, tree *Tree) {
 	defer s.mu.Unlock()
 	s.index[dimCode] = node
 	s.treeOf[dimCode] = tree
+	s.syncProgress.Add(1)
 }
 
 func (s *Store) buildIndex(node *Node, tree *Tree) {
@@ -156,4 +159,16 @@ func (s *Store) Trees() []*Tree {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.trees
+}
+
+func (s *Store) ResetSyncProgress() {
+	s.syncProgress.Store(0)
+}
+
+func (s *Store) IncSyncProgress() {
+	s.syncProgress.Add(1)
+}
+
+func (s *Store) SyncProgress() int64 {
+	return s.syncProgress.Load()
 }

@@ -37,6 +37,7 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 	log.Printf("[Sync] Token OK")
 
 	store.Clear()
+	store.ResetSyncProgress()
 
 	budgets, err := fetchBudgetList(client, token)
 	if err != nil {

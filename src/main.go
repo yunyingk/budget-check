@@ -4,11 +4,20 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"budget/src/budget"
 )
 
 func main() {
+	// 确保工作目录在 exe 所在目录，Windows 服务模式下工作目录默认是 System32
+	if exePath, err := os.Executable(); err == nil {
+		if dir := filepath.Dir(exePath); dir != "" {
+			os.Chdir(dir)
+		}
+	}
+
 	configPath := flag.String("config", "config.yaml", "配置文件路径")
 	syncNow := flag.Bool("sync", false, "手动同步一次后退出")
 	install := flag.Bool("install", false, "注册为 Windows 服务")

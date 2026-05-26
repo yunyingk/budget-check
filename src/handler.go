@@ -1,6 +1,7 @@
 package main
 
 import (
+	"budget/src/budget"
 	"budget/src/consumer"
 	"encoding/json"
 	"fmt"
@@ -15,10 +16,7 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func handleStatus(w http.ResponseWriter, r *http.Request, store interface {
-	Count() int
-	UpdatedAt() time.Time
-}) {
+func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store) {
 	lastSync := store.UpdatedAt()
 	lastSyncStr := ""
 	if !lastSync.IsZero() {
@@ -27,11 +25,12 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store interface {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	writeJSON(w, 200, map[string]interface{}{
-		"status":       "ok",
-		"count":        store.Count(),
-		"last_sync_at": lastSyncStr,
-		"memory_mb":    bToMB(m.Alloc),
-		"goroutines":   runtime.NumGoroutine(),
+		"status":        "ok",
+		"count":         store.Count(),
+		"sync_progress": store.SyncProgress(),
+		"last_sync_at":  lastSyncStr,
+		"memory_mb":     bToMB(m.Alloc),
+		"goroutines":    runtime.NumGoroutine(),
 	})
 }
 
@@ -91,6 +90,7 @@ h1{font-size:18px;margin-bottom:16px}
     <h2>服务状态</h2>
     <div id="status">
       <div class="row"><span class="label">缓存条目</span><span class="value" id="count">-</span></div>
+      <div class="row"><span class="label">已拉取</span><span class="value" id="fetched">-</span></div>
       <div class="row"><span class="label">上次同步</span><span class="value" id="lastSync">-</span></div>
       <div class="row"><span class="label">同步间隔</span><span class="value">%d 分钟</span></div>
       <div class="row"><span class="label">队列容量</span><span class="value">%d</span></div>
@@ -124,6 +124,9 @@ h1{font-size:18px;margin-bottom:16px}
 function refresh(){
   fetch('/api/status').then(function(r){return r.json()}).then(function(d){
     document.getElementById('count').textContent=d.count;
+    var sp=d.sync_progress||0;
+    var spText=sp>0?sp+' 条':'-';
+    document.getElementById('fetched').textContent=spText;
     document.getElementById('lastSync').textContent=d.last_sync_at||'未同步';
     document.getElementById('memory').textContent=d.memory_mb+' MB';
     document.getElementById('goroutines').textContent=d.goroutines;
