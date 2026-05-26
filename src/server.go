@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"budget/src/budget"
@@ -18,6 +19,7 @@ var (
 	client  *ekb.Client
 	syncCfg budget.SyncConfig
 	checker *consumer.Checker
+	storeMu sync.RWMutex
 )
 
 func initComponents() {
@@ -54,17 +56,25 @@ func initComponents() {
 	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExemptProjects, costCenterID, projectID)
 }
 
+func doSync() {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+	budget.Sync(store, client, syncCfg)
+}
+
 func mainLogic() {
 	initComponents()
 
 	log.Println("[Init] 开始后台同步预算数据...")
 	go func() {
-		budget.Sync(store, client, syncCfg)
+		doSync()
 		log.Println("[Init] 首次同步完成，开始消费队列")
 
 		go func() {
 			for task := range QueueChan() {
 				func() {
+					storeMu.RLock()
+					defer storeMu.RUnlock()
 					defer func() {
 						if r := recover(); r != nil {
 							log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
@@ -77,7 +87,7 @@ func mainLogic() {
 
 		for {
 			time.Sleep(time.Duration(cfg.Sync.IntervalMinutes) * time.Minute)
-			budget.Sync(store, client, syncCfg)
+			doSync()
 		}
 	}()
 
@@ -127,7 +137,7 @@ func mainLogic() {
 		}
 		go func() {
 			log.Println("[API] 收到手动同步请求")
-			budget.Sync(store, client, syncCfg)
+			doSync()
 		}()
 		writeJSON(w, 200, map[string]interface{}{
 			"success":       true,

@@ -1,8 +1,97 @@
-# 合思预算校验服务
+# Budget Check Agent
 
-启动时自动同步预算数据到内存，提供单据校验 API。
+> **Automated Budget Validation Agent** — Event-driven webhook agent for real-time expense budget compliance checking.
 
-## 部署
+合思（易快报）预算校验智能体：基于事件驱动架构的自动化预算合规校验 Agent，通过 Webhook 接收审批事件，异步执行多维度预算规则引擎，并自动回调审批结果。
+
+## Highlights
+
+- **Agent Workflow** — Webhook 事件触发 → 异步任务队列 → 规则引擎校验 → 审批回调，完整闭环
+- **Hierarchical In-Memory Cache** — 树形预算数据内存缓存，启动时全量同步，定时增量刷新，查询零 IO
+- **Multi-branch Rule Engine** — 按费用性质（业务/管理/生产/豁免）自动路由至不同校验分支，支持多维度交叉校验
+- **Fault Isolation** — Consumer 端 panic recover，单任务异常不影响队列持续消费
+- **Event-Driven Architecture** — 异步解耦，Webhook 入队即返回，校验与审批流程非阻塞
+- **Production-Grade Windows Service** — 原生注册为 Windows Service，开机自启，支持日志轮转
+
+## Architecture
+
+```
+┌──────────┐    Webhook     ┌──────────────┐   Enqueue   ┌───────────┐
+│  合思审批  │ ────────────► │ webhook.Handle│ ──────────► │ Task Queue│
+│  Platform │  (Event Push)  └──────────────┘             └─────┬─────┘
+└──────────┘                                                     │
+       ▲                                                         │ Dequeue
+       │ Callback                                                ▼
+       │                                                 ┌──────────────┐
+       │                                                 │ consumer.    │
+       └───────────────────────────────────────────────── │ Process()    │
+                                                         └──────┬───────┘
+                                                                │
+                                                         ┌──────▼───────┐
+                                                         │ Rule Engine  │
+                                                         │ (Multi-branch)│
+                                                         └──────────────┘
+```
+
+## Rule Engine
+
+### 费用性质路由
+
+| 费用性质 | 校验策略 | 校验维度 |
+|---------|---------|---------|
+| 业务/管理 | 成本中心预算包 | 成本中心 + 明细费用档案 |
+| 生产（非豁免） | 项目预算包 ∩ 成本中心预算包 | 多维交叉校验（两个都须命中） |
+| 生产（豁免） | 成本中心预算包 | 同业务/管理 |
+| 未知 | Reject | 直接拒绝 |
+
+### 成本中心预算包（Hierarchical Cache）
+
+```
+成本中心预算包 (Root)
+├── 成本中心 (Level 1) ← 匹配校验
+│   └── 预算管控 (Level 2) ← 透传（单值节点）
+│       └── 费用档案 (Level 3) ← 逐条明细校验
+```
+
+### 项目预算包（Hierarchical Cache）
+
+```
+项目预算包 (Root)
+├── 项目 (Level 1) ← 匹配校验
+│   └── 成本中心 (Level 2) ← 可选校验（存在则校验，不存在则 skip）
+```
+
+## API Reference
+
+| Method | Endpoint | Description | Auth |
+|--------|----------|-------------|------|
+| GET | `/api/status` | Health check & cache status | — |
+| GET/POST | `/api/sync` | Trigger manual cache refresh | `?password=` |
+| GET | `/api/config` | Runtime configuration | `?password=` |
+| POST | `/api/webhook/budget-check` | Webhook event entrypoint | — |
+
+### Webhook Payload
+
+```json
+{
+  "code": "HS2026050334",
+  "flowId": "ID01T0bZEtkW1G",
+  "nodeId": "FLOW:1357809991:1128586113"
+}
+```
+
+### Accepted Response
+
+```json
+{
+  "budget-check": "1",
+  "success": true,
+  "message": "已入队等待处理",
+  "task_id": "260520-a1b2c3-050334"
+}
+```
+
+## Deployment
 
 ### 1. 编译
 
