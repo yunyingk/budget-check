@@ -25,14 +25,13 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 	writeJSON(w, 200, map[string]interface{}{
-		"status":        "ok",
-		"version":       version,
-		"count":         store.Count(),
-		"sync_progress": store.SyncProgress(),
-		"is_syncing":    syncing.Load(),
-		"last_sync_at":  lastSyncStr,
-		"memory_mb":     bToMB(m.Alloc),
-		"goroutines":    runtime.NumGoroutine(),
+		"status":           "ok",
+		"version":          version,
+		"total_leaf_count": store.TotalLeafCount(),
+		"is_syncing":       syncing.Load(),
+		"last_sync_at":     lastSyncStr,
+		"memory_mb":        bToMB(m.Alloc),
+		"goroutines":       runtime.NumGoroutine(),
 	})
 }
 
@@ -93,8 +92,7 @@ h1{font-size:18px;margin-bottom:16px}
     <h2>服务状态</h2>
     <div id="status">
       <div class="row"><span class="label">版本号</span><span class="value" id="version">-</span></div>
-      <div class="row"><span class="label">缓存条目</span><span class="value" id="count">-</span></div>
-      <div class="row"><span class="label">已拉取</span><span class="value" id="fetched">-</span></div>
+      <div class="row"><span class="label">总末端节点</span><span class="value" id="totalLeaf">-</span></div>
       <div class="row"><span class="label">同步状态</span><span class="value" id="syncState">-</span></div>
       <div class="row"><span class="label">上次同步</span><span class="value" id="lastSync">-</span></div>
       <div class="row"><span class="label">同步间隔</span><span class="value">%d 分钟</span></div>
@@ -129,10 +127,8 @@ h1{font-size:18px;margin-bottom:16px}
 function refresh(){
   fetch('/api/status').then(function(r){return r.json()}).then(function(d){
     document.getElementById('version').textContent=d.version||'-';
-    document.getElementById('count').textContent=d.count;
-    var sp=d.sync_progress||0;
-    var spText=sp>0?sp+' 条':'-';
-    document.getElementById('fetched').textContent=spText;
+    var tlc=d.total_leaf_count||0;
+    document.getElementById('totalLeaf').textContent=tlc>0?tlc+' 节点':'-';
     var syncEl=document.getElementById('syncState');
     if(d.is_syncing){
       syncEl.innerHTML='<span class="tag tag-warn">同步中...</span>';
@@ -170,7 +166,7 @@ function doSync(){
 	targetsHTML := ""
 	for _, tree := range store.Trees() {
 		count := store.GetTreeNodeCount(tree.ID)
-		targetsHTML += fmt.Sprintf(`<div class="row"><span class="label">%s</span><span class="value"><span class="tag tag-ok">%d 节点</span></span></div>`, tree.Name, count)
+		targetsHTML += fmt.Sprintf(`<div class="row"><span class="label">%s</span><span class="value"><span class="tag tag-ok">%d 末端节点</span></span></div>`, tree.Name, count)
 	}
 
 	natureHTML := ""

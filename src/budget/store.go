@@ -203,3 +203,13 @@ func (s *Store) GetTreeNodeCount(treeID string) int {
 	defer s.mu.RUnlock()
 	return s.treeCount[treeID]
 }
+
+func (s *Store) TotalLeafCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := 0
+	for _, c := range s.treeCount {
+		total += c
+	}
+	return total
+}
