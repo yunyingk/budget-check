@@ -30,6 +30,15 @@ func Handle(w http.ResponseWriter, r *http.Request, enqueue func(types.Task) boo
 		writeJSON(w, 400, Response{BudgetCheck: "0", Message: "请求格式错误"})
 		return
 	}
+	// 测试通路：三个字段均为空，不入队直接返回 201
+	if req.Code == "" && req.FlowID == "" && req.NodeID == "" {
+		log.Printf("[Webhook] 测试通路: 空参数请求，不入队")
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(Response{BudgetCheck: "1", Success: true, Message: "测试通路，已跳过"})
+		return
+	}
+
 	if req.Code == "" || req.FlowID == "" || req.NodeID == "" {
 		writeJSON(w, 400, Response{BudgetCheck: "0", Message: "code、flowId、nodeId 不能为空"})
 		return
