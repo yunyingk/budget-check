@@ -3,11 +3,12 @@ Go 项目，go.mod 在根目录，源码在 src/，运行时配置与 exe 同目
 ## 构建
 
 ```bash
-# Windows 交叉编译（产物必须输出到 dist/，版本号通过 ldflags 注入）
-GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=0.5.2" -o dist/budget-check.exe ./src
+# 统一构建脚本（自动读取 version.go 中的版本号，通过 ldflags 注入）
+./build.sh
 
-# macOS 本地编译（产物必须输出到 dist/，版本号通过 ldflags 注入）
-go build -ldflags "-X main.version=0.5.2" -o dist/budget-check-mac ./src
+# 手动构建（不推荐，容易输错版本号）
+# GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=0.5.2" -o dist/budget-check.exe ./src
+# go build -ldflags "-X main.version=0.5.2" -o dist/budget-check-mac ./src
 ```
 
 ## 版本号规则
