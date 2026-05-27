@@ -1,0 +1,110 @@
+=======================================
+合思预算校验服务 - Windows 部署操作指南
+=======================================
+
+一、文件结构要求（放到客户机器上的同一个文件夹）
+-------------------------------------------
+BudgetCheck/
+├── budget-check.exe      # 主程序
+├── config.yaml           # 配置文件
+├── config.example.yaml   # 配置示例（参考用）
+└── logs/                 # 日志目录（程序自动创建）
+
+
+二、快速开始（推荐流程）
+-------------------------------------------
+1. 把整个文件夹复制到客户 Windows 服务器，例如 D:\BudgetCheck\
+2. 修改 config.yaml，填入客户环境的真实参数（AppKey、AppSecret、SignKey、预算包ID等）
+3. 双击运行 budget-check.exe，看控制台是否正常启动
+4. 浏览器访问 http://服务器IP:9080/ 看管理页面是否正常
+5. 确认没问题后，关闭窗口，执行下面的安装命令注册为服务
+
+
+三、服务管理命令（在 budget-check.exe 所在目录打开 CMD 或 PowerShell）
+-------------------------------------------
+
+# 安装为 Windows 服务（自动启动）
+budget-check.exe -install
+
+# 启动服务
+sc start BudgetCheck
+
+# 停止服务
+sc stop BudgetCheck
+
+# 卸载服务
+budget-check.exe -uninstall
+
+# 查看服务状态
+sc query BudgetCheck
+
+# 直接运行（不注册服务，用于调试）
+budget-check.exe
+
+# 手动同步一次预算数据（同步完自动退出）
+budget-check.exe -sync
+
+
+四、管理页面与 API
+-------------------------------------------
+管理页面: http://服务器IP:9080/
+状态 API: http://服务器IP:9080/api/status
+手动同步: http://服务器IP:9080/api/sync （POST）
+Webhook:  http://服务器IP:9080/api/webhook/budget-check （POST）
+
+如果配置了 web.password，访问管理页面需要在 URL 加 ?password=你的密码
+如果配置了 sync.password，调用 /api/sync 需要在 URL 加 ?password=你的密码
+
+
+五、常见问题处理
+-------------------------------------------
+
+# 问题1：安装服务报错 "The service did not respond to a start or control request..."
+原因：服务模式下工作目录是 C:\Windows\System32，找不到 config.yaml
+解决：确保使用的是最新编译的 budget-check.exe（已修复此问题）
+
+# 问题2：安装报错 "The system cannot find the file specified"
+原因：服务注册表里指向了旧路径（之前安装过又删了 exe）
+解决：
+sc delete BudgetCheck
+然后重新 budget-check.exe -install
+
+# 问题3：服务启动了但日志文件没有写入
+原因：Windows 服务默认用 SYSTEM 账户运行，可能没有写入权限
+解决：给文件夹加 Everyone 写入权限
+icacls . /grant Everyone:F
+
+# 问题4：服务安装成功但启动失败
+排查步骤：
+1. 先双击运行 budget-check.exe，看控制台有什么报错
+2. 检查 config.yaml 格式是否正确（缩进必须是空格，不能用 Tab）
+3. 检查 config.yaml 里的 AppKey/AppSecret 是否能连上合思服务器
+4. 检查端口 9080 是否被其他程序占用
+
+# 问题5：端口被占用
+查看占用端口的进程：
+netstat -ano | findstr :9080
+taskkill /PID <进程ID> /F
+
+
+六、配置文件修改后生效
+-------------------------------------------
+修改 config.yaml 后需要重启服务：
+sc stop BudgetCheck
+sc start BudgetCheck
+
+
+七、查看日志
+-------------------------------------------
+日志文件在 logs/ 目录下，按天轮转：
+- budget-check-2026-05-26.log
+
+也可以在管理页面直接看到最近处理记录。
+
+
+八、完全卸载清理
+-------------------------------------------
+sc stop BudgetCheck
+budget-check.exe -uninstall
+del /Q budget-check.exe
+rd /S /Q logs
