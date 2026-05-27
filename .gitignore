@@ -1,5 +1,7 @@
 *.exe
 budget-check
+budget-check-mac
 logs/
+dist/
 config.yaml
 config/config.yaml
