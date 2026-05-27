@@ -11,6 +11,7 @@ type Node struct {
 	DimCode  string                // 维度内容ID
 	DimType  string                // 维度类型，从 API dimensionType 字段获取
 	NodeName string                // 节点名称
+	NodeID   string                // 预算节点ID（API nodeId），用于去重
 	IsLeaf   bool                  // 是否叶子节点
 	Children  map[string]*Node     // 子节点，key=子节点的dimCode
 }
@@ -33,17 +34,19 @@ type Store struct {
 	trees        []*Tree          // 所有预算包
 	index        map[string]*Node // dimCode → 节点索引，跨所有预算包
 	treeOf       map[string]*Tree // dimCode → 所属预算包
-	treeCount    map[string]int   // tree ID → 节点数
+	treeCount    map[string]int   // tree ID → 叶子节点数
+	treeNodeSeen map[string]map[string]bool // tree ID → nodeID set（去重用）
 	updatedAt    time.Time
 	syncProgress atomic.Int64 // 当前同步进度（实时）
 }
 
 func NewStore() *Store {
 	return &Store{
-		trees:     make([]*Tree, 0),
-		index:     make(map[string]*Node),
-		treeOf:    make(map[string]*Tree),
-		treeCount: make(map[string]int),
+		trees:        make([]*Tree, 0),
+		index:        make(map[string]*Node),
+		treeOf:       make(map[string]*Tree),
+		treeCount:    make(map[string]int),
+		treeNodeSeen: make(map[string]map[string]bool),
 	}
 }
 
@@ -68,14 +71,20 @@ func (s *Store) addTreeRef(tree *Tree) {
 	s.updatedAt = time.Now()
 }
 
-// indexNode 单独往索引里写一个节点
+// indexNode 单独往索引里写一个节点，treeCount 按 nodeID 去重
 func (s *Store) indexNode(dimCode string, node *Node, tree *Tree) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.index[dimCode] = node
 	s.treeOf[dimCode] = tree
-	if node.IsLeaf {
-		s.treeCount[tree.ID]++
+	if node.IsLeaf && node.NodeID != "" {
+		if s.treeNodeSeen[tree.ID] == nil {
+			s.treeNodeSeen[tree.ID] = make(map[string]bool)
+		}
+		if !s.treeNodeSeen[tree.ID][node.NodeID] {
+			s.treeNodeSeen[tree.ID][node.NodeID] = true
+			s.treeCount[tree.ID]++
+		}
 	}
 	s.syncProgress.Add(1)
 }
@@ -84,8 +93,14 @@ func (s *Store) buildIndex(node *Node, tree *Tree) {
 	for dimCode, child := range node.Children {
 		s.index[dimCode] = child
 		s.treeOf[dimCode] = tree
-		if child.IsLeaf {
-			s.treeCount[tree.ID]++
+		if child.IsLeaf && child.NodeID != "" {
+			if s.treeNodeSeen[tree.ID] == nil {
+				s.treeNodeSeen[tree.ID] = make(map[string]bool)
+			}
+			if !s.treeNodeSeen[tree.ID][child.NodeID] {
+				s.treeNodeSeen[tree.ID][child.NodeID] = true
+				s.treeCount[tree.ID]++
+			}
 		}
 		s.buildIndex(child, tree)
 	}
@@ -138,6 +153,7 @@ func (s *Store) Clear() {
 	s.index = make(map[string]*Node)
 	s.treeOf = make(map[string]*Tree)
 	s.treeCount = make(map[string]int)
+	s.treeNodeSeen = make(map[string]map[string]bool)
 }
 
 // Replace 原子替换整个 store（同步用）

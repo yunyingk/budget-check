@@ -126,6 +126,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 			DimCode:  rn.dimCode,
 			DimType:  rn.dimType,
 			NodeName: rn.nodeName,
+			NodeID:   rn.nodeID,
 			IsLeaf:   rn.isLeaf,
 			Children: make(map[string]*Node),
 		}
@@ -182,6 +183,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 					DimCode:  rn.dimCode,
 					DimType:  rn.dimType,
 					NodeName: rn.nodeName,
+					NodeID:   rn.nodeID,
 					IsLeaf:   rn.isLeaf,
 					Children: make(map[string]*Node),
 				}
