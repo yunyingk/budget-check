@@ -155,7 +155,7 @@ func mainLogic() {
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", cfg.Server.Port)
-	log.Printf("服务启动: %s", addr)
+	log.Printf("服务启动: %s 版本=%s", addr, version)
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("服务启动失败: %v", err)
 	}

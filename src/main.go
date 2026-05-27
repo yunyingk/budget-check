@@ -47,6 +47,7 @@ func main() {
 	log.SetOutput(logger)
 
 	if *syncNow {
+		fmt.Printf("合思预算校验服务 v%s\n", version)
 		initComponents()
 		budget.Sync(store, client, syncCfg)
 		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())

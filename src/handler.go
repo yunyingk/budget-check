@@ -26,6 +26,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store) {
 	runtime.ReadMemStats(&m)
 	writeJSON(w, 200, map[string]interface{}{
 		"status":        "ok",
+		"version":       version,
 		"count":         store.Count(),
 		"sync_progress": store.SyncProgress(),
 		"is_syncing":    syncing.Load(),
@@ -86,11 +87,12 @@ h1{font-size:18px;margin-bottom:16px}
 </style>
 </head>
 <body>
-<h1>合思预算校验服务</h1>
+<h1>合思预算校验服务 <span style="font-size:12px;color:#999;font-weight:normal">v%s</span></h1>
 <div class="grid">
   <div class="card">
     <h2>服务状态</h2>
     <div id="status">
+      <div class="row"><span class="label">版本号</span><span class="value" id="version">-</span></div>
       <div class="row"><span class="label">缓存条目</span><span class="value" id="count">-</span></div>
       <div class="row"><span class="label">已拉取</span><span class="value" id="fetched">-</span></div>
       <div class="row"><span class="label">同步状态</span><span class="value" id="syncState">-</span></div>
@@ -126,6 +128,7 @@ h1{font-size:18px;margin-bottom:16px}
 <script>
 function refresh(){
   fetch('/api/status').then(function(r){return r.json()}).then(function(d){
+    document.getElementById('version').textContent=d.version||'-';
     document.getElementById('count').textContent=d.count;
     var sp=d.sync_progress||0;
     var spText=sp>0?sp+' 条':'-';
@@ -176,5 +179,5 @@ function doSync(){
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	fmt.Fprintf(w, html, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, targetsHTML, natureHTML)
+	fmt.Fprintf(w, html, version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, targetsHTML, natureHTML)
 }

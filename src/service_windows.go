@@ -18,6 +18,7 @@ import (
 const serviceName = "BudgetCheck"
 
 func handleInstall() {
+	fmt.Printf("合思预算校验服务 v%s\n", version)
 	if err := installService(); err != nil {
 		fmt.Printf("注册服务失败: %v\n", err)
 		os.Exit(1)
@@ -26,6 +27,7 @@ func handleInstall() {
 }
 
 func handleUninstall() {
+	fmt.Printf("合思预算校验服务 v%s\n", version)
 	if err := uninstallService(); err != nil {
 		fmt.Printf("卸载服务失败: %v\n", err)
 		os.Exit(1)
@@ -196,7 +198,7 @@ func showInteractiveMenu() {
 	status := getServiceStatus()
 
 	fmt.Println("┌────────────────────────────────────────┐")
-	fmt.Println("│     合思预算校验服务 - 安装向导        │")
+	fmt.Printf("│     合思预算校验服务 v%-16s │\n", version)
 	fmt.Println("├────────────────────────────────────────┤")
 
 	var action string
