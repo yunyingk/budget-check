@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,9 @@ import (
 	"budget/src/ekb"
 	"budget/src/webhook"
 )
+
+//go:embed static/*
+var staticFS embed.FS
 
 var (
 	cfg     *Config
@@ -97,12 +101,13 @@ func mainLogic() {
 
 	mux := http.NewServeMux()
 	if cfg.Web.Enabled {
+		mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/" {
 				http.NotFound(w, r)
 				return
 			}
-			handleHome(w, r, cfg, store)
+			handleHome(w, r)
 		})
 		mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, checker)
