@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>登录 - 合思预算校验服务</title>
+<link rel="icon" type="image/png" href="static/favicon.png">
+<style>
+:root {
+  --bg: #f0f2f5;
+  --card-bg: #fff;
+  --text: #333;
+  --text-secondary: #888;
+  --border: #e8e8e8;
+  --primary: #1677ff;
+  --primary-hover: #4096ff;
+  --danger: #ff4d4f;
+  --radius: 10px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 16px;
+}
+.login-card {
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 32px;
+  width: 100%;
+  max-width: 360px;
+}
+.login-card h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 24px;
+  text-align: center;
+}
+.form-group {
+  margin-bottom: 16px;
+}
+.form-group label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.form-group input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-group input:focus {
+  border-color: var(--primary);
+}
+.btn-login {
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-login:hover { background: var(--primary-hover); }
+.btn-login:disabled { opacity: 0.6; cursor: not-allowed; }
+.error-msg {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 12px;
+  text-align: center;
+  min-height: 20px;
+}
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1>合思预算校验服务</h1>
+  <div class="form-group">
+    <label for="password">密码</label>
+    <input type="password" id="password" placeholder="请输入密码" autofocus>
+  </div>
+  <button class="btn-login" id="btnLogin" onclick="doLogin()">登录</button>
+  <div class="error-msg" id="errMsg"></div>
+</div>
+<script>
+(function() {
+  var input = document.getElementById('password');
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') doLogin();
+  });
+})();
+function doLogin() {
+  var btn = document.getElementById('btnLogin');
+  var err = document.getElementById('errMsg');
+  var pw = document.getElementById('password').value;
+  if (!pw) { err.textContent = '请输入密码'; return; }
+  btn.disabled = true;
+  err.textContent = '';
+  fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({password: pw})
+  }).then(function(r) { return r.json(); }).then(function(d) {
+    if (d.error) {
+      err.textContent = d.error;
+      btn.disabled = false;
+    } else {
+      window.location.href = '/';
+    }
+  }).catch(function(e) {
+    err.textContent = '登录失败: ' + e;
+    btn.disabled = false;
+  });
+}
+</script>
+</body>
+</html>
