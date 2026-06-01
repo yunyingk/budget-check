@@ -19,13 +19,14 @@ import (
 var staticFS embed.FS
 
 var (
-	cfg     *Config
-	store   *budget.Store
-	client  *ekb.Client
-	syncCfg budget.SyncConfig
-	checker *consumer.Checker
-	storeMu sync.RWMutex
-	syncing atomic.Bool
+	cfg        *Config
+	store      *budget.Store
+	client     *ekb.Client
+	syncCfg    budget.SyncConfig
+	checker    *consumer.Checker
+	storeMu     sync.RWMutex
+	syncing    atomic.Bool
+	tokenStore *TokenStore
 )
 
 func initComponents() {
@@ -38,6 +39,7 @@ func initComponents() {
 
 	store = budget.NewStore()
 	client = ekb.NewClient(cfg.Ekb.Host, cfg.Ekb.AppKey, cfg.Ekb.AppSecret)
+	tokenStore = NewTokenStore()
 
 	queueSize := cfg.Sync.QueueSize
 	if queueSize <= 0 {
@@ -81,14 +83,17 @@ func mainLogic() {
 		go func() {
 			for task := range QueueChan() {
 				func() {
-					storeMu.RLock()
-					defer storeMu.RUnlock()
 					defer func() {
 						if r := recover(); r != nil {
 							log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
 						}
 					}()
-					checker.Process(task)
+					storeMu.RLock()
+					action, comment := checker.Evaluate(task)
+					storeMu.RUnlock()
+					if err := checker.CallbackApproval(task.FlowID, task.NodeID, action, comment); err != nil {
+						log.Printf("[Consumer] 回调审批失败: %v", err)
+					}
 				}()
 			}
 		}()
@@ -102,17 +107,27 @@ func mainLogic() {
 	mux := http.NewServeMux()
 	if cfg.Web.Enabled {
 		mux.Handle("/static/", http.FileServer(http.FS(staticFS)))
+		mux.HandleFunc("/login", handleLoginPage)
+		mux.HandleFunc("/api/login", handleLogin)
+		mux.HandleFunc("/api/logout", handleLogout)
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/" {
 				http.NotFound(w, r)
 				return
 			}
-			handleHome(w, r)
+			authMiddleware(handleHome)(w, r)
 		})
-		mux.HandleFunc("/api/history", func(w http.ResponseWriter, r *http.Request) {
+		mux.HandleFunc("/api/status", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+			handleStatus(w, r, store)
+		}))
+		mux.HandleFunc("/api/history", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, checker)
-		})
+		}))
 		log.Println("[Web] 管理页面已启用: http://localhost" + fmt.Sprintf(":%d", cfg.Server.Port))
+	} else {
+		mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+			handleStatus(w, r, store)
+		})
 	}
 	mux.HandleFunc("/api/webhook/budget-check", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -120,9 +135,6 @@ func mainLogic() {
 			return
 		}
 		webhook.Handle(w, r, Enqueue, GenTaskID)
-	})
-	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		handleStatus(w, r, store)
 	})
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
 		if cfg.Sync.Password == "" {

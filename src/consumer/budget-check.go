@@ -4,7 +4,6 @@ import (
 	"budget/src/budget"
 	"budget/src/ekb"
 	"budget/src/types"
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -71,40 +70,128 @@ func (c *Checker) GetHistory() []HistoryItem {
 	return result
 }
 
-func (c *Checker) Process(task types.Task) {
+type checkUnit struct {
+	costCenter string
+	project    string
+	feeType    string
+	label      string
+}
+
+func (c *Checker) extractCheckUnits(form map[string]interface{}, details []map[string]interface{}) []checkUnit {
+	formCostCenter, _ := form["E_system_costcenter"].(string)
+	formProject, _ := form["项目"].(string)
+
+	if len(details) == 0 {
+		return []checkUnit{{
+			costCenter: formCostCenter,
+			project:    formProject,
+			feeType:    "",
+			label:      "单据",
+		}}
+	}
+
+	var units []checkUnit
+	for i, detail := range details {
+		feeTypeForm, _ := detail["feeTypeForm"].(map[string]interface{})
+		feeType := ""
+		if feeTypeForm != nil {
+			feeType, _ = feeTypeForm["u_费用类型档案"].(string)
+		}
+
+		var rawApportions []interface{}
+		if feeTypeForm != nil {
+			rawApportions, _ = feeTypeForm["apportions"].([]interface{})
+		}
+
+		if len(rawApportions) > 0 {
+			for j, a := range rawApportions {
+				apportion, _ := a.(map[string]interface{})
+				apportionForm, _ := apportion["apportionForm"].(map[string]interface{})
+
+				cc := formCostCenter
+				proj := formProject
+				if apportionForm != nil {
+					if v, ok := apportionForm["E_system_costcenter"].(string); ok && v != "" {
+						cc = v
+					}
+					if v, ok := apportionForm["项目"].(string); ok && v != "" {
+						proj = v
+					}
+				}
+
+				units = append(units, checkUnit{
+					costCenter: cc,
+					project:    proj,
+					feeType:    feeType,
+					label:      fmt.Sprintf("明细%d分摊%d", i+1, j+1),
+				})
+			}
+		} else {
+			units = append(units, checkUnit{
+				costCenter: formCostCenter,
+				project:    formProject,
+				feeType:    feeType,
+				label:      fmt.Sprintf("明细%d", i+1),
+			})
+		}
+	}
+
+	return units
+}
+
+// Evaluate 执行预算校验逻辑，返回 action 和 comment（不调用回调）
+func (c *Checker) Evaluate(task types.Task) (string, string) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
 	form, details, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
-		c.AddHistory(task.Code, "error", fmt.Sprintf("获取单据失败: %v", err))
-		return
+		return "refuse", fmt.Sprintf("系统错误：获取单据失败: %v", err)
 	}
 	if form == nil {
 		log.Printf("[Consumer] 单据 %s 未找到", task.Code)
-		c.AddHistory(task.Code, "error", "单据未找到")
-		return
+		return "refuse", "系统错误：单据未找到"
 	}
 
 	natureID, _ := form["u_费用性质"].(string)
-	costCenter, _ := form["E_system_costcenter"].(string)
-	project, _ := form["项目"].(string)
 	natureName := ExpenseNature[natureID]
+	units := c.extractCheckUnits(form, details)
 
-	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 成本中心=%s 项目=%s 明细数=%d",
-		task.Code, natureID, natureName, costCenter, project, len(details))
-
-	var action, comment string
-	switch natureName {
-	case "业务", "管理":
-		action, comment = c.checkBusinessOrManage(costCenter, details)
-	case "生产":
-		action, comment = c.checkProduction(costCenter, project, details)
-	default:
-		action = "refuse"
-		comment = fmt.Sprintf("未配置的性质ID: %s", natureID)
+	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 校验单元数=%d",
+		task.Code, natureID, natureName, len(units))
+	for _, u := range units {
+		log.Printf("[Consumer]   %s: 成本中心=%s 项目=%s 费用类型=%s", u.label, u.costCenter, u.project, u.feeType)
 	}
 
+	if natureName == "" {
+		return "refuse", fmt.Sprintf("未配置的性质ID: %s", natureID)
+	}
+
+	var refusals []string
+	for _, unit := range units {
+		var action, comment string
+		switch natureName {
+		case "业务", "管理":
+			action, comment = c.checkBusinessUnit(unit)
+		case "生产":
+			action, comment = c.checkProductionUnit(unit)
+		default:
+			action = "refuse"
+			comment = fmt.Sprintf("未配置的性质ID: %s", natureID)
+		}
+		if action == "refuse" {
+			refusals = append(refusals, comment)
+		}
+	}
+
+	if len(refusals) > 0 {
+		return "refuse", joinStrings(refusals, "；")
+	}
+	return "accept", "同意"
+}
+
+func (c *Checker) Process(task types.Task) {
+	action, comment := c.Evaluate(task)
 	log.Printf("[Consumer] 校验结果: taskID=%s action=%s comment=%s", task.ID, action, comment)
 	c.AddHistory(task.Code, action, comment)
 
@@ -116,9 +203,9 @@ func (c *Checker) Process(task types.Task) {
 	log.Printf("[Consumer] 处理完成: taskID=%s", task.ID)
 }
 
-func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]interface{}) (string, string) {
-	if costCenter == "" {
-		return "refuse", "缺少成本中心"
+func (c *Checker) checkBusinessUnit(unit checkUnit) (string, string) {
+	if unit.costCenter == "" {
+		return "refuse", fmt.Sprintf("%s 缺少成本中心", unit.label)
 	}
 
 	tree := c.Store.GetTreeByID(c.CostCenterID)
@@ -131,18 +218,18 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 		rootSet[k] = true
 	}
 
-	foundID, found := c.Client.FindAncestorInTree(costCenter, rootSet, 5)
+	foundID, found := c.Client.FindAncestorInTree(unit.costCenter, rootSet, 5)
 	if !found {
-		ccDim, _ := c.Client.GetDimension(costCenter)
-		ccName := costCenter
+		ccDim, _ := c.Client.GetDimension(unit.costCenter)
+		ccName := unit.costCenter
 		if ccDim != nil {
 			ccName = ccDim.Name
 		}
-		return "refuse", fmt.Sprintf("成本中心 %s(%s) 不在成本中心预算包内", ccName, costCenter)
+		return "refuse", fmt.Sprintf("%s 成本中心 %s(%s) 不在成本中心预算包内", unit.label, ccName, unit.costCenter)
 	}
 
-	if len(details) == 0 {
-		return "accept", "同意"
+	if unit.feeType == "" {
+		return "accept", ""
 	}
 
 	ccNode := tree.Root[foundID]
@@ -153,48 +240,32 @@ func (c *Checker) checkBusinessOrManage(costCenter string, details []map[string]
 		}
 	}
 
-	var missing []string
-	for i, detail := range details {
-		feeTypeForm, _ := detail["feeTypeForm"].(map[string]interface{})
-		if feeTypeForm == nil {
-			continue
+	if len(feeTypeBudget) > 0 {
+		ftSet := make(map[string]bool, len(feeTypeBudget))
+		for k := range feeTypeBudget {
+			ftSet[k] = true
 		}
-		feeType, _ := feeTypeForm["u_费用类型档案"].(string)
-		if feeType == "" {
-			continue
+		_, ftFound := c.Client.FindAncestorInTree(unit.feeType, ftSet, 5)
+		if ftFound {
+			return "accept", ""
 		}
-		if feeTypeBudget != nil {
-			ftSet := make(map[string]bool, len(feeTypeBudget))
-			for k := range feeTypeBudget {
-				ftSet[k] = true
-			}
-			_, found := c.Client.FindAncestorInTree(feeType, ftSet, 5)
-			if found {
-				continue
-			}
-		}
-		ftDim, _ := c.Client.GetDimension(feeType)
-		ftName := feeType
-		if ftDim != nil {
-			ftName = ftDim.Name
-		}
-		missing = append(missing, fmt.Sprintf("明细%d %s(%s)", i+1, ftName, feeType))
 	}
 
-	if len(missing) > 0 {
-		return "refuse", fmt.Sprintf("%s 不在成本中心预算包内", joinStrings(missing, "、"))
+	ftDim, _ := c.Client.GetDimension(unit.feeType)
+	ftName := unit.feeType
+	if ftDim != nil {
+		ftName = ftDim.Name
 	}
-
-	return "accept", "同意"
+	return "refuse", fmt.Sprintf("%s 费用类型 %s(%s) 不在成本中心预算包内", unit.label, ftName, unit.feeType)
 }
 
-func (c *Checker) checkProduction(costCenter, project string, details []map[string]interface{}) (string, string) {
-	if project == "" {
-		return "refuse", "生产费用缺少项目"
+func (c *Checker) checkProductionUnit(unit checkUnit) (string, string) {
+	if unit.project == "" {
+		return "refuse", fmt.Sprintf("%s 生产费用缺少项目", unit.label)
 	}
 
-	if c.ExemptProjects[project] {
-		return c.checkBusinessOrManage(costCenter, details)
+	if c.ExemptProjects[unit.project] {
+		return c.checkBusinessUnit(unit)
 	}
 
 	tree := c.Store.GetTreeByID(c.ProjectID)
@@ -206,37 +277,37 @@ func (c *Checker) checkProduction(costCenter, project string, details []map[stri
 	for k := range tree.Root {
 		projectSet[k] = true
 	}
-	foundProjectID, found := c.Client.FindAncestorInTree(project, projectSet, 5)
+	foundProjectID, found := c.Client.FindAncestorInTree(unit.project, projectSet, 5)
 	if !found {
-		pjDim, _ := c.Client.GetDimension(project)
-		pjName := project
+		pjDim, _ := c.Client.GetDimension(unit.project)
+		pjName := unit.project
 		if pjDim != nil {
 			pjName = pjDim.Name
 		}
-		return "refuse", fmt.Sprintf("项目 %s(%s) 不在项目预算包内", pjName, project)
+		return "refuse", fmt.Sprintf("%s 项目 %s(%s) 不在项目预算包内", unit.label, pjName, unit.project)
 	}
 
 	projectNode := tree.Root[foundProjectID]
 	if len(projectNode.Children) > 0 {
-		if costCenter == "" {
-			return "refuse", "项目要求成本中心但未填写"
+		if unit.costCenter == "" {
+			return "refuse", fmt.Sprintf("%s 项目要求成本中心但未填写", unit.label)
 		}
 		ccSet := make(map[string]bool, len(projectNode.Children))
 		for k := range projectNode.Children {
 			ccSet[k] = true
 		}
-		_, ccFound := c.Client.FindAncestorInTree(costCenter, ccSet, 5)
+		_, ccFound := c.Client.FindAncestorInTree(unit.costCenter, ccSet, 5)
 		if !ccFound {
-			ccDim, _ := c.Client.GetDimension(costCenter)
-			ccName := costCenter
+			ccDim, _ := c.Client.GetDimension(unit.costCenter)
+			ccName := unit.costCenter
 			if ccDim != nil {
 				ccName = ccDim.Name
 			}
-			return "refuse", fmt.Sprintf("成本中心 %s(%s) 不在项目预算包内", ccName, costCenter)
+			return "refuse", fmt.Sprintf("%s 成本中心 %s(%s) 不在项目预算包内", unit.label, ccName, unit.costCenter)
 		}
 	}
 
-	action, comment := c.checkBusinessOrManage(costCenter, details)
+	action, comment := c.checkBusinessUnit(unit)
 	if action == "refuse" {
 		return action, comment
 	}
@@ -253,7 +324,9 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[stri
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, nil, fmt.Errorf("解析响应失败: %w", err)
+	}
 
 	val, _ := result["value"].(map[string]interface{})
 	if val == nil {
@@ -277,12 +350,11 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[stri
 	return form, details, nil
 }
 
-func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error {
-	token, err := c.Client.GetToken()
-	if err != nil {
-		return fmt.Errorf("获取token失败: %w", err)
-	}
+func (c *Checker) CallbackApproval(flowID, nodeID, action, comment string) error {
+	return c.callbackApproval(flowID, nodeID, action, comment)
+}
 
+func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error {
 	body, _ := json.Marshal(map[string]string{
 		"signKey": c.SignKey,
 		"flowId":  flowID,
@@ -291,15 +363,17 @@ func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error
 		"comment": comment,
 	})
 
-	url := c.Client.HostURL("/api/openapi/v1/approval?accessToken=" + token)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	url := c.Client.HostURL("/api/openapi/v1/approval")
+	resp, err := c.Client.Post(url, body)
 	if err != nil {
 		return fmt.Errorf("请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("解析响应失败: %w", err)
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("API返回错误: status=%d body=%v", resp.StatusCode, result)

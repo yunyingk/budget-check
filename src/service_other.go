@@ -19,5 +19,5 @@ func tryRunAsService() bool {
 }
 
 func showInteractiveMenu() {
-	fmt.Println("交互式菜单仅支持 Windows")
+	mainLogic()
 }

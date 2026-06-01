@@ -54,8 +54,20 @@
       .replace(/"/g, '&quot;');
   }
 
+  function checkAuth(r) {
+    if (r.status === 401) {
+      window.location.href = '/login';
+      return false;
+    }
+    return true;
+  }
+
   function refresh() {
-    fetch('/api/status').then(function(r) { return r.json(); }).then(function(d) {
+    fetch('/api/status').then(function(r) {
+      if (!checkAuth(r)) return;
+      return r.json();
+    }).then(function(d) {
+      if (!d) return;
       document.getElementById('version').textContent = d.version || '-';
       document.getElementById('headerVersion').textContent = 'v' + (d.version || '-');
       var tlc = d.total_leaf_count || 0;
@@ -82,7 +94,11 @@
       console.warn('status fetch failed', e);
     });
 
-    fetch('/api/history').then(function(r) { return r.json(); }).then(function(d) {
+    fetch('/api/history').then(function(r) {
+      if (!checkAuth(r)) return;
+      return r.json();
+    }).then(function(d) {
+      if (!d) return;
       renderHistory(d);
     }).catch(function(e) {
       console.warn('history fetch failed', e);
@@ -100,11 +116,16 @@
     if (p) url += '?password=' + encodeURIComponent(p);
 
     fetch(url, { method: 'POST' })
-      .then(function(r) { return r.json(); })
+      .then(function(r) {
+        if (r.status === 401) { window.location.href = '/login'; return null; }
+        return r.json();
+      })
       .then(function(d) {
         msg.textContent = d.message || JSON.stringify(d);
         btn.disabled = false;
-        refresh();
+
+
+  refresh();
       })
       .catch(function(e) {
         msg.textContent = '失败: ' + e;

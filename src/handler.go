@@ -58,10 +58,6 @@ func handleHome(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Web 管理页面未启用", http.StatusNotFound)
 		return
 	}
-	if cfg.Web.Password != "" && r.URL.Query().Get("password") != cfg.Web.Password {
-		http.Error(w, "密码错误", http.StatusForbidden)
-		return
-	}
 	data, err := staticFS.ReadFile("static/index.html")
 	if err != nil {
 		http.Error(w, "页面加载失败", http.StatusInternalServerError)

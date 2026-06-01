@@ -161,6 +161,13 @@ header .version {
 }
 .btn-secondary:hover { background: #e6e8eb; }
 
+.btn-danger {
+  background: #fff0f0;
+  color: var(--danger);
+  border: 1px solid #ffccc7;
+}
+.btn-danger:hover { background: #fff2f0; }
+
 .sync-msg {
   margin-top: 10px;
   font-size: 13px;

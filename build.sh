@@ -21,5 +21,8 @@ GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/b
 echo "→ macOS amd64..."
 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-mac ./src
 
+# 同步配置文件到 dist
+cp config.yaml dist/config.yaml
+
 echo "构建完成:"
 ls -lh dist/budget-check.exe dist/budget-check-mac

@@ -59,7 +59,9 @@ func (c *Client) GetToken() (string, error) {
 	}
 	defer resp.Body.Close()
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("解析token响应失败: %w", err)
+	}
 	val, _ := result["value"].(map[string]interface{})
 	token, _ := val["accessToken"].(string)
 	if token == "" {
@@ -92,6 +94,24 @@ func (c *Client) GetWithToken(rawURL, token string) (*http.Response, error) {
 	return c.client.Get(rawURL + sep + "accessToken=" + url.QueryEscape(token))
 }
 
+// Post 发起 POST 请求，自动附加 accessToken 参数
+func (c *Client) Post(rawURL string, body []byte) (*http.Response, error) {
+	token, err := c.GetToken()
+	if err != nil {
+		return nil, err
+	}
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	req, err := http.NewRequest(http.MethodPost, rawURL+sep+"accessToken="+url.QueryEscape(token), bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return c.client.Do(req)
+}
+
 // HostURL 拼接主机地址 + 路径
 func (c *Client) HostURL(path string) string {
 	return c.Host + path
@@ -122,7 +142,9 @@ func (c *Client) GetDimension(id string) (*Dimension, error) {
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("解析维度响应失败: %w", err)
+	}
 
 	val, _ := result["value"].(map[string]interface{})
 	if val == nil {

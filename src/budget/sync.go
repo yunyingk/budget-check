@@ -209,10 +209,12 @@ func fetchBudgetList(client *ekb.Client, token string) ([]map[string]interface{}
 	}
 	defer resp.Body.Close()
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("解析预算列表响应失败: %w", err)
+	}
 	items, ok := result["items"].([]interface{})
 	if !ok {
-		return nil, nil
+		return nil, fmt.Errorf("预算列表响应格式错误: 缺少 items 字段")
 	}
 	var budgets []map[string]interface{}
 	for _, item := range items {
@@ -242,7 +244,9 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 	}
 
 	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, nil, 0, fmt.Errorf("解析节点响应失败: %w", err)
+	}
 	resp.Body.Close()
 
 	val, _ := result["value"].(map[string]interface{})
@@ -307,7 +311,10 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 			}
 
 			var pResult map[string]interface{}
-			json.NewDecoder(pResp.Body).Decode(&pResult)
+			if err := json.NewDecoder(pResp.Body).Decode(&pResult); err != nil {
+				ch <- pageResult{err: fmt.Errorf("解析分页响应失败: %w", err), page: p}
+				return
+			}
 			pResp.Body.Close()
 
 			pVal, _ := pResult["value"].(map[string]interface{})
