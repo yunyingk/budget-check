@@ -29,6 +29,8 @@ type RuleTarget struct {
 
 // RulesConfig 规则配置
 type RulesConfig struct {
-	Version int          `json:"version"`
-	Targets []RuleTarget `json:"targets"`
+	Version     int          `json:"version"`
+	GlobalSteps []Step       `json:"global_steps,omitempty"` // 单据级别前置规则
+	SplitMode   string       `json:"split_mode,omitempty"`   // ""=不拆, "detail"=拆明细, "apportion"=拆明细+分摊
+	Targets     []RuleTarget `json:"targets"`
 }
