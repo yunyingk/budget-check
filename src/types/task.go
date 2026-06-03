@@ -8,6 +8,7 @@ type Task struct {
 	Code       string
 	FlowID     string
 	NodeID     string
+	WebhookKey string // 来源 webhook 标识（如 budget-check）
 	EnqueuedAt time.Time
 	ClientIP   string
 }

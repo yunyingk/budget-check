@@ -71,12 +71,16 @@ func (a *App) Init() error {
 	}
 	a.SyncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
 
-	// 获取 budget-check webhook 的 sign_key 和 rules
-	signKey := ""
+	// 收集所有 webhook 的 sign_key（webhookKey → signKey）
+	signKeys := make(map[string]string)
 	rulesPath := ""
-	if wh, ok := a.Config.Webhooks["budget-check"]; ok {
-		signKey = wh.SignKey
-		rulesPath = wh.Rules
+	for key, wh := range a.Config.Webhooks {
+		if wh.SignKey != "" {
+			signKeys[key] = wh.SignKey
+		}
+		if rulesPath == "" && wh.Rules != "" {
+			rulesPath = wh.Rules
+		}
 	}
 
 	if rulesPath != "" {
@@ -93,7 +97,7 @@ func (a *App) Init() error {
 		}
 	}
 
-	a.Checker = consumer.NewChecker(a.Client, a.Store, signKey, a.Engine)
+	a.Checker = consumer.NewChecker(a.Client, a.Store, signKeys, a.Engine)
 	return nil
 }
 
@@ -125,7 +129,7 @@ func (a *App) Run() error {
 					a.StoreMu.RLock()
 					action, comment := a.Checker.Evaluate(task)
 					a.StoreMu.RUnlock()
-					if err := a.Checker.CallbackApproval(task.FlowID, task.NodeID, action, comment); err != nil {
+					if err := a.Checker.CallbackApproval(task, action, comment); err != nil {
 						log.Printf("[Consumer] 回调审批失败: %v", err)
 					}
 				}()

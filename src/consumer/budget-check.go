@@ -23,18 +23,18 @@ type HistoryItem struct {
 type Checker struct {
 	Client     *ekb.Client
 	Store      *budget.Store
-	SignKey    string
+	SignKeys   map[string]string // webhookKey → signKey
 	Engine     *rules.Engine
 	History    []HistoryItem
 	HistoryMax int
 	mu         sync.Mutex
 }
 
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string, engine *rules.Engine) *Checker {
+func NewChecker(client *ekb.Client, store *budget.Store, signKeys map[string]string, engine *rules.Engine) *Checker {
 	return &Checker{
 		Client:     client,
 		Store:      store,
-		SignKey:    signKey,
+		SignKeys:   signKeys,
 		Engine:     engine,
 		HistoryMax: 50,
 	}
@@ -112,11 +112,16 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[stri
 	return form, details, nil
 }
 
-func (c *Checker) CallbackApproval(flowID, nodeID, action, comment string) error {
+func (c *Checker) CallbackApproval(task types.Task, action, comment string) error {
+	signKey, ok := c.SignKeys[task.WebhookKey]
+	if !ok {
+		return fmt.Errorf("未找到 webhookKey=%s 对应的 sign_key", task.WebhookKey)
+	}
+
 	body, _ := json.Marshal(map[string]string{
-		"signKey": c.SignKey,
-		"flowId":  flowID,
-		"nodeId":  nodeID,
+		"signKey": signKey,
+		"flowId":  task.FlowID,
+		"nodeId":  task.NodeID,
 		"action":  action,
 		"comment": comment,
 	})
@@ -143,6 +148,6 @@ func (c *Checker) CallbackApproval(flowID, nodeID, action, comment string) error
 		}
 	}
 
-	log.Printf("[Consumer] 审批回调成功: flowID=%s action=%s", flowID, action)
+	log.Printf("[Consumer] 审批回调成功: flowID=%s action=%s", task.FlowID, action)
 	return nil
 }

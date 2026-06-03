@@ -5,7 +5,6 @@ import (
 	"budget/src/config"
 	"budget/src/consumer"
 	"budget/src/queue"
-	"budget/src/webhook"
 	"embed"
 	"log"
 	"net/http"
@@ -62,14 +61,17 @@ func Register(mux *http.ServeMux, deps Deps) {
 		})
 	}
 
-	// Webhook
-	mux.HandleFunc("/api/webhook/budget-check", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", 405)
-			return
-		}
-		webhook.Handle(w, r, deps.Queue.Enqueue, queue.GenTaskID)
-	})
+	// Webhooks：按配置动态注册，每个 webhook 一个路由
+	for key := range cfg.Webhooks {
+		webhookKey := key // 闭包捕获
+		mux.HandleFunc("/api/webhook/"+webhookKey, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", 405)
+				return
+			}
+			handleWebhook(w, r, webhookKey, deps.Queue.Enqueue, queue.GenTaskID)
+		})
+	}
 
 	// Config API
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
