@@ -20,23 +20,23 @@ type HistoryItem struct {
 	Comment string `json:"comment"`
 }
 
+const defaultHistoryMax = 50
+
 type Checker struct {
-	Client     *ekb.Client
-	Store      *budget.Store
-	SignKeys   map[string]string // webhookKey → signKey
-	Engine     *rules.Engine
-	History    []HistoryItem
-	HistoryMax int
-	mu         sync.Mutex
+	Client   *ekb.Client
+	Store    *budget.Store
+	SignKeys map[string]string        // webhookKey → signKey
+	Engines  map[string]*rules.Engine // webhookKey → Engine
+	History  []HistoryItem
+	mu       sync.Mutex
 }
 
-func NewChecker(client *ekb.Client, store *budget.Store, signKeys map[string]string, engine *rules.Engine) *Checker {
+func NewChecker(client *ekb.Client, store *budget.Store, signKeys map[string]string, engines map[string]*rules.Engine) *Checker {
 	return &Checker{
-		Client:     client,
-		Store:      store,
-		SignKeys:   signKeys,
-		Engine:     engine,
-		HistoryMax: 50,
+		Client:   client,
+		Store:    store,
+		SignKeys: signKeys,
+		Engines:  engines,
 	}
 }
 
@@ -44,8 +44,8 @@ func (c *Checker) AddHistory(code, action, comment string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.History = append([]HistoryItem{{Time: time.Now().Format("15:04:05"), Code: code, Action: action, Comment: comment}}, c.History...)
-	if len(c.History) > c.HistoryMax {
-		c.History = c.History[:c.HistoryMax]
+	if len(c.History) > defaultHistoryMax {
+		c.History = c.History[:defaultHistoryMax]
 	}
 }
 
@@ -71,10 +71,11 @@ func (c *Checker) Evaluate(task types.Task) (string, string) {
 		return "refuse", "系统错误：单据未找到"
 	}
 
-	if c.Engine == nil {
-		return "refuse", "规则引擎未配置"
+	engine := c.Engines[task.WebhookKey]
+	if engine == nil {
+		return "refuse", fmt.Sprintf("规则引擎未配置: webhook=%s", task.WebhookKey)
 	}
-	return c.Engine.Evaluate(form, details)
+	return engine.Evaluate(form, details)
 }
 
 func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[string]interface{}, error) {

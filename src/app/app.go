@@ -28,7 +28,7 @@ type App struct {
 	Syncing atomic.Bool
 	SyncCfg budget.SyncConfig
 	Checker *consumer.Checker
-	Engine  *rules.Engine
+	Engines map[string]*rules.Engine // webhookKey → Engine
 	Version string
 }
 
@@ -71,33 +71,35 @@ func (a *App) Init() error {
 	}
 	a.SyncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
 
-	// 收集所有 webhook 的 sign_key（webhookKey → signKey）
+	// 收集所有 webhook 的 sign_key，并为每个 webhook 加载独立规则引擎
 	signKeys := make(map[string]string)
-	rulesPath := ""
+	a.Engines = make(map[string]*rules.Engine)
+
 	for key, wh := range a.Config.Webhooks {
 		if wh.SignKey != "" {
 			signKeys[key] = wh.SignKey
 		}
-		if rulesPath == "" && wh.Rules != "" {
-			rulesPath = wh.Rules
-		}
-	}
 
-	if rulesPath != "" {
+		rulesPath := wh.Rules
+		if rulesPath == "" {
+			rulesPath = fmt.Sprintf("rules/%s.json", key)
+		}
+
 		rulesCfg, err := config.LoadRules(rulesPath)
 		if err != nil {
-			log.Printf("[Init] 加载规则文件失败: %v", err)
-		} else {
-			a.Engine, err = rules.NewEngine(a.Store, a.Client, rulesCfg)
-			if err != nil {
-				log.Printf("[Init] 规则编译失败: %v", err)
-			} else {
-				log.Printf("[Init] 规则引擎加载成功: %s", rulesPath)
-			}
+			log.Printf("[Init] webhook=%s 规则文件不存在或加载失败: %v", key, err)
+			continue
 		}
+		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg)
+		if err != nil {
+			log.Printf("[Init] webhook=%s 规则编译失败: %v", key, err)
+			continue
+		}
+		a.Engines[key] = engine
+		log.Printf("[Init] webhook=%s 规则引擎加载成功: %s", key, rulesPath)
 	}
 
-	a.Checker = consumer.NewChecker(a.Client, a.Store, signKeys, a.Engine)
+	a.Checker = consumer.NewChecker(a.Client, a.Store, signKeys, a.Engines)
 	return nil
 }
 
