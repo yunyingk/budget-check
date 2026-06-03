@@ -16,13 +16,16 @@ type EkbConfig struct {
 	Host      string `yaml:"host"`
 	AppKey    string `yaml:"app_key"`
 	AppSecret string `yaml:"app_secret"`
-	SignKey   string `yaml:"sign_key"`
 }
 
 type BudgetTarget struct {
-	ID    string `yaml:"id"`
-	Name  string `yaml:"name"`
-	Depth int    `yaml:"depth"`
+	ID   string `yaml:"id"`
+	Name string `yaml:"name"`
+}
+
+type WebhookEntry struct {
+	SignKey string         `yaml:"sign_key"`
+	Targets []BudgetTarget `yaml:"targets"`
 }
 
 type SyncConfig struct {
@@ -33,8 +36,8 @@ type SyncConfig struct {
 }
 
 type LogConfig struct {
-	Level     string `yaml:"level"`
-	Rotation  string `yaml:"rotation"`
+	Level    string `yaml:"level"`
+	Rotation string `yaml:"rotation"`
 }
 
 type WebConfig struct {
@@ -43,13 +46,12 @@ type WebConfig struct {
 }
 
 type Config struct {
-	Server          ServerConfig           `yaml:"server"`
-	Ekb             EkbConfig              `yaml:"ekuaibao"`
-	BudgetTargets   []BudgetTarget         `yaml:"budget_targets"`
-	ExemptProjects  []string               `yaml:"exempt_projects"`
-	Sync            SyncConfig             `yaml:"sync"`
-	Logging         LogConfig              `yaml:"logging"`
-	Web             WebConfig              `yaml:"web"`
+	Server    ServerConfig             `yaml:"server"`
+	Ekb       EkbConfig                `yaml:"ekuaibao"`
+	Webhooks  map[string]WebhookEntry  `yaml:"webhooks"`
+	Sync      SyncConfig               `yaml:"sync"`
+	Logging   LogConfig                `yaml:"logging"`
+	Web       WebConfig                `yaml:"web"`
 }
 
 func LoadConfig(path string) (*Config, error) {

@@ -47,21 +47,25 @@ func initComponents() {
 	}
 	InitQueue(queueSize)
 
+	// 从 webhooks 中收集所有 targets（去重）
+	targetMap := make(map[string]budget.Target)
+	for _, wh := range cfg.Webhooks {
+		for _, t := range wh.Targets {
+			targetMap[t.ID] = budget.Target{ID: t.ID, Name: t.Name}
+		}
+	}
 	var targets []budget.Target
-	for _, t := range cfg.BudgetTargets {
-		targets = append(targets, budget.Target{ID: t.ID, Name: t.Name, Depth: t.Depth})
+	for _, t := range targetMap {
+		targets = append(targets, t)
 	}
 	syncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
 
-	costCenterID := ""
-	projectID := ""
-	if len(cfg.BudgetTargets) >= 1 {
-		costCenterID = cfg.BudgetTargets[0].ID
+	// 获取 budget-check webhook 的 sign_key
+	signKey := ""
+	if wh, ok := cfg.Webhooks["budget-check"]; ok {
+		signKey = wh.SignKey
 	}
-	if len(cfg.BudgetTargets) >= 2 {
-		projectID = cfg.BudgetTargets[1].ID
-	}
-	checker = consumer.NewChecker(client, store, cfg.Ekb.SignKey, cfg.ExemptProjects, costCenterID, projectID)
+	checker = consumer.NewChecker(client, store, signKey)
 }
 
 func doSync() {

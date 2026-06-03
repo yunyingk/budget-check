@@ -26,30 +26,20 @@ type HistoryItem struct {
 }
 
 type Checker struct {
-	Client         *ekb.Client
-	Store          *budget.Store
-	SignKey        string
-	ExemptProjects map[string]bool
-	CostCenterID   string
-	ProjectID      string
-	History        []HistoryItem
-	HistoryMax     int
-	mu             sync.Mutex
+	Client     *ekb.Client
+	Store      *budget.Store
+	SignKey    string
+	History    []HistoryItem
+	HistoryMax int
+	mu         sync.Mutex
 }
 
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string, exemptProjects []string, costCenterID, projectID string) *Checker {
-	exempt := make(map[string]bool, len(exemptProjects))
-	for _, id := range exemptProjects {
-		exempt[id] = true
-	}
+func NewChecker(client *ekb.Client, store *budget.Store, signKey string) *Checker {
 	return &Checker{
-		Client:         client,
-		Store:          store,
-		SignKey:        signKey,
-		ExemptProjects: exempt,
-		CostCenterID:   costCenterID,
-		ProjectID:      projectID,
-		HistoryMax:     50,
+		Client:     client,
+		Store:      store,
+		SignKey:    signKey,
+		HistoryMax: 50,
 	}
 }
 
@@ -208,7 +198,8 @@ func (c *Checker) checkBusinessUnit(unit checkUnit) (string, string) {
 		return "refuse", fmt.Sprintf("%s 缺少成本中心", unit.label)
 	}
 
-	tree := c.Store.GetTreeByID(c.CostCenterID)
+	// 从 store 中查找成本中心预算包（通过名称匹配）
+	tree := c.Store.GetTreeByName("成本中心预算")
 	if tree == nil {
 		return "refuse", "成本中心预算包未同步"
 	}
@@ -264,11 +255,8 @@ func (c *Checker) checkProductionUnit(unit checkUnit) (string, string) {
 		return "refuse", fmt.Sprintf("%s 生产费用缺少项目", unit.label)
 	}
 
-	if c.ExemptProjects[unit.project] {
-		return c.checkBusinessUnit(unit)
-	}
-
-	tree := c.Store.GetTreeByID(c.ProjectID)
+	// 从 store 中查找项目预算包（通过名称匹配）
+	tree := c.Store.GetTreeByName("项目预算")
 	if tree == nil {
 		return "refuse", "项目预算包未同步"
 	}
