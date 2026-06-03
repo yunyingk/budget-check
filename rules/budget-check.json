@@ -50,6 +50,11 @@
           "action": "split_detail"
         },
         {
+          "description": "指定项目免预算校验",
+          "when": "项目 == 'ID01LZNNxip807'",
+          "then": "pass"
+        },
+        {
           "description": "启动分摊",
           "action": "split_apportion"
         },
