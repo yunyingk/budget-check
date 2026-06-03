@@ -3,6 +3,7 @@
 package main
 
 import (
+	"budget/src/app"
 	"bufio"
 	"fmt"
 	"os"
@@ -35,23 +36,25 @@ func handleUninstall() {
 	fmt.Println("服务已卸载")
 }
 
-func tryRunAsService() bool {
+func tryRunAsService(a *app.App) bool {
 	isWinService, _ := svc.IsWindowsService()
 	if !isWinService {
 		return false
 	}
-	if err := runService(); err != nil {
+	if err := runService(a); err != nil {
 		fmt.Printf("Windows 服务启动失败: %v\n", err)
 		os.Exit(1)
 	}
 	return true
 }
 
-func runService() error {
-	return svc.Run(serviceName, &budgetService{})
+func runService(a *app.App) error {
+	return svc.Run(serviceName, &budgetService{app: a})
 }
 
-type budgetService struct{}
+type budgetService struct {
+	app *app.App
+}
 
 func (s *budgetService) Execute(args []string, r <-chan svc.ChangeRequest, status chan<- svc.Status) (bool, uint32) {
 	defer func() {
@@ -64,10 +67,16 @@ func (s *budgetService) Execute(args []string, r <-chan svc.ChangeRequest, statu
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				fmt.Fprintf(os.Stderr, "[mainLogic] panic: %v\n", rec)
+				fmt.Fprintf(os.Stderr, "[Run] panic: %v\n", rec)
 			}
 		}()
-		mainLogic()
+		if err := s.app.Init(); err != nil {
+			fmt.Fprintf(os.Stderr, "[Init] 初始化失败: %v\n", err)
+			return
+		}
+		if err := s.app.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "[Run] 服务运行错误: %v\n", err)
+		}
 	}()
 	status <- svc.Status{
 		State:   svc.Running,
@@ -194,7 +203,7 @@ func stopService() error {
 	return err
 }
 
-func showInteractiveMenu() {
+func showInteractiveMenu(a *app.App) {
 	status := getServiceStatus()
 
 	fmt.Println("┌────────────────────────────────────────┐")

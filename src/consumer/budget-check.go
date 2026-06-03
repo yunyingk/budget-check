@@ -3,6 +3,7 @@ package consumer
 import (
 	"budget/src/budget"
 	"budget/src/ekb"
+	"budget/src/rules"
 	"budget/src/types"
 	"encoding/json"
 	"fmt"
@@ -12,12 +13,6 @@ import (
 	"time"
 )
 
-var ExpenseNature = map[string]string{
-	"ID01LPD78hZRsr": "业务",
-	"ID01LPDisfN3qv": "管理",
-	"ID01LPDfjPcnyn": "生产",
-}
-
 type HistoryItem struct {
 	Time    string `json:"time"`
 	Code    string `json:"code"`
@@ -25,31 +20,23 @@ type HistoryItem struct {
 	Comment string `json:"comment"`
 }
 
+const defaultHistoryMax = 50
+
 type Checker struct {
-	Client         *ekb.Client
-	Store          *budget.Store
-	SignKey        string
-	ExemptProjects map[string]bool
-	CostCenterID   string
-	ProjectID      string
-	History        []HistoryItem
-	HistoryMax     int
-	mu             sync.Mutex
+	Client   *ekb.Client
+	Store    *budget.Store
+	SignKeys map[string]string        // webhookKey → signKey
+	Engines  map[string]*rules.Engine // webhookKey → Engine
+	History  []HistoryItem
+	mu       sync.Mutex
 }
 
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string, exemptProjects []string, costCenterID, projectID string) *Checker {
-	exempt := make(map[string]bool, len(exemptProjects))
-	for _, id := range exemptProjects {
-		exempt[id] = true
-	}
+func NewChecker(client *ekb.Client, store *budget.Store, signKeys map[string]string, engines map[string]*rules.Engine) *Checker {
 	return &Checker{
-		Client:         client,
-		Store:          store,
-		SignKey:        signKey,
-		ExemptProjects: exempt,
-		CostCenterID:   costCenterID,
-		ProjectID:      projectID,
-		HistoryMax:     50,
+		Client:   client,
+		Store:    store,
+		SignKeys: signKeys,
+		Engines:  engines,
 	}
 }
 
@@ -57,8 +44,8 @@ func (c *Checker) AddHistory(code, action, comment string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.History = append([]HistoryItem{{Time: time.Now().Format("15:04:05"), Code: code, Action: action, Comment: comment}}, c.History...)
-	if len(c.History) > c.HistoryMax {
-		c.History = c.History[:c.HistoryMax]
+	if len(c.History) > defaultHistoryMax {
+		c.History = c.History[:defaultHistoryMax]
 	}
 }
 
@@ -70,80 +57,11 @@ func (c *Checker) GetHistory() []HistoryItem {
 	return result
 }
 
-type checkUnit struct {
-	costCenter string
-	project    string
-	feeType    string
-	label      string
-}
-
-func (c *Checker) extractCheckUnits(form map[string]interface{}, details []map[string]interface{}) []checkUnit {
-	formCostCenter, _ := form["E_system_costcenter"].(string)
-	formProject, _ := form["项目"].(string)
-
-	if len(details) == 0 {
-		return []checkUnit{{
-			costCenter: formCostCenter,
-			project:    formProject,
-			feeType:    "",
-			label:      "单据",
-		}}
-	}
-
-	var units []checkUnit
-	for i, detail := range details {
-		feeTypeForm, _ := detail["feeTypeForm"].(map[string]interface{})
-		feeType := ""
-		if feeTypeForm != nil {
-			feeType, _ = feeTypeForm["u_费用类型档案"].(string)
-		}
-
-		var rawApportions []interface{}
-		if feeTypeForm != nil {
-			rawApportions, _ = feeTypeForm["apportions"].([]interface{})
-		}
-
-		if len(rawApportions) > 0 {
-			for j, a := range rawApportions {
-				apportion, _ := a.(map[string]interface{})
-				apportionForm, _ := apportion["apportionForm"].(map[string]interface{})
-
-				cc := formCostCenter
-				proj := formProject
-				if apportionForm != nil {
-					if v, ok := apportionForm["E_system_costcenter"].(string); ok && v != "" {
-						cc = v
-					}
-					if v, ok := apportionForm["项目"].(string); ok && v != "" {
-						proj = v
-					}
-				}
-
-				units = append(units, checkUnit{
-					costCenter: cc,
-					project:    proj,
-					feeType:    feeType,
-					label:      fmt.Sprintf("明细%d分摊%d", i+1, j+1),
-				})
-			}
-		} else {
-			units = append(units, checkUnit{
-				costCenter: formCostCenter,
-				project:    formProject,
-				feeType:    feeType,
-				label:      fmt.Sprintf("明细%d", i+1),
-			})
-		}
-	}
-
-	return units
-}
-
 // Evaluate 执行预算校验逻辑，返回 action 和 comment（不调用回调）
 func (c *Checker) Evaluate(task types.Task) (string, string) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
-	form, details, err := c.fetchFlowData(task.Code)
+	form, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
 		return "refuse", fmt.Sprintf("系统错误：获取单据失败: %v", err)
@@ -153,212 +71,49 @@ func (c *Checker) Evaluate(task types.Task) (string, string) {
 		return "refuse", "系统错误：单据未找到"
 	}
 
-	natureID, _ := form["u_费用性质"].(string)
-	natureName := ExpenseNature[natureID]
-	units := c.extractCheckUnits(form, details)
-
-	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 校验单元数=%d",
-		task.Code, natureID, natureName, len(units))
-	for _, u := range units {
-		log.Printf("[Consumer]   %s: 成本中心=%s 项目=%s 费用类型=%s", u.label, u.costCenter, u.project, u.feeType)
+	engine := c.Engines[task.WebhookKey]
+	if engine == nil {
+		return "refuse", fmt.Sprintf("规则引擎未配置: webhook=%s", task.WebhookKey)
 	}
-
-	if natureName == "" {
-		return "refuse", fmt.Sprintf("未配置的性质ID: %s", natureID)
-	}
-
-	var refusals []string
-	for _, unit := range units {
-		var action, comment string
-		switch natureName {
-		case "业务", "管理":
-			action, comment = c.checkBusinessUnit(unit)
-		case "生产":
-			action, comment = c.checkProductionUnit(unit)
-		default:
-			action = "refuse"
-			comment = fmt.Sprintf("未配置的性质ID: %s", natureID)
-		}
-		if action == "refuse" {
-			refusals = append(refusals, comment)
-		}
-	}
-
-	if len(refusals) > 0 {
-		return "refuse", joinStrings(refusals, "；")
-	}
-	return "accept", "同意"
+	return engine.Evaluate(form)
 }
 
-func (c *Checker) Process(task types.Task) {
-	action, comment := c.Evaluate(task)
-	log.Printf("[Consumer] 校验结果: taskID=%s action=%s comment=%s", task.ID, action, comment)
-	c.AddHistory(task.Code, action, comment)
-
-	if err := c.callbackApproval(task.FlowID, task.NodeID, action, comment); err != nil {
-		log.Printf("[Consumer] 回调审批失败: %v", err)
-		return
-	}
-
-	log.Printf("[Consumer] 处理完成: taskID=%s", task.ID)
-}
-
-func (c *Checker) checkBusinessUnit(unit checkUnit) (string, string) {
-	if unit.costCenter == "" {
-		return "refuse", fmt.Sprintf("%s 缺少成本中心", unit.label)
-	}
-
-	tree := c.Store.GetTreeByID(c.CostCenterID)
-	if tree == nil {
-		return "refuse", "成本中心预算包未同步"
-	}
-
-	rootSet := make(map[string]bool, len(tree.Root))
-	for k := range tree.Root {
-		rootSet[k] = true
-	}
-
-	foundID, found := c.Client.FindAncestorInTree(unit.costCenter, rootSet, 5)
-	if !found {
-		ccDim, _ := c.Client.GetDimension(unit.costCenter)
-		ccName := unit.costCenter
-		if ccDim != nil {
-			ccName = ccDim.Name
-		}
-		return "refuse", fmt.Sprintf("%s 成本中心 %s(%s) 不在成本中心预算包内", unit.label, ccName, unit.costCenter)
-	}
-
-	if unit.feeType == "" {
-		return "accept", ""
-	}
-
-	ccNode := tree.Root[foundID]
-	feeTypeBudget := make(map[string]*budget.Node)
-	for _, child := range ccNode.Children {
-		for k, v := range child.Children {
-			feeTypeBudget[k] = v
-		}
-	}
-
-	if len(feeTypeBudget) > 0 {
-		ftSet := make(map[string]bool, len(feeTypeBudget))
-		for k := range feeTypeBudget {
-			ftSet[k] = true
-		}
-		_, ftFound := c.Client.FindAncestorInTree(unit.feeType, ftSet, 5)
-		if ftFound {
-			return "accept", ""
-		}
-	}
-
-	ftDim, _ := c.Client.GetDimension(unit.feeType)
-	ftName := unit.feeType
-	if ftDim != nil {
-		ftName = ftDim.Name
-	}
-	return "refuse", fmt.Sprintf("%s 费用类型 %s(%s) 不在成本中心预算包内", unit.label, ftName, unit.feeType)
-}
-
-func (c *Checker) checkProductionUnit(unit checkUnit) (string, string) {
-	if unit.project == "" {
-		return "refuse", fmt.Sprintf("%s 生产费用缺少项目", unit.label)
-	}
-
-	if c.ExemptProjects[unit.project] {
-		return c.checkBusinessUnit(unit)
-	}
-
-	tree := c.Store.GetTreeByID(c.ProjectID)
-	if tree == nil {
-		return "refuse", "项目预算包未同步"
-	}
-
-	projectSet := make(map[string]bool, len(tree.Root))
-	for k := range tree.Root {
-		projectSet[k] = true
-	}
-	foundProjectID, found := c.Client.FindAncestorInTree(unit.project, projectSet, 5)
-	if !found {
-		pjDim, _ := c.Client.GetDimension(unit.project)
-		pjName := unit.project
-		if pjDim != nil {
-			pjName = pjDim.Name
-		}
-		return "refuse", fmt.Sprintf("%s 项目 %s(%s) 不在项目预算包内", unit.label, pjName, unit.project)
-	}
-
-	projectNode := tree.Root[foundProjectID]
-	if len(projectNode.Children) > 0 {
-		if unit.costCenter == "" {
-			return "refuse", fmt.Sprintf("%s 项目要求成本中心但未填写", unit.label)
-		}
-		ccSet := make(map[string]bool, len(projectNode.Children))
-		for k := range projectNode.Children {
-			ccSet[k] = true
-		}
-		_, ccFound := c.Client.FindAncestorInTree(unit.costCenter, ccSet, 5)
-		if !ccFound {
-			ccDim, _ := c.Client.GetDimension(unit.costCenter)
-			ccName := unit.costCenter
-			if ccDim != nil {
-				ccName = ccDim.Name
-			}
-			return "refuse", fmt.Sprintf("%s 成本中心 %s(%s) 不在项目预算包内", unit.label, ccName, unit.costCenter)
-		}
-	}
-
-	action, comment := c.checkBusinessUnit(unit)
-	if action == "refuse" {
-		return action, comment
-	}
-
-	return "accept", "同意"
-}
-
-func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[string]interface{}, error) {
+func (c *Checker) fetchFlowData(code string) (map[string]interface{}, error) {
 	u := c.Client.HostURL("/api/openapi/v1.1/flowDetails/byCode?code=" + code)
 	resp, err := c.Client.Get(u)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	val, _ := result["value"].(map[string]interface{})
 	if val == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	form, _ := val["form"].(map[string]interface{})
 	if form == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	var details []map[string]interface{}
-	if rawDetails, ok := form["details"].([]interface{}); ok {
-		for _, d := range rawDetails {
-			if detail, ok := d.(map[string]interface{}); ok {
-				details = append(details, detail)
-			}
-		}
+	return form, nil
+}
+
+func (c *Checker) CallbackApproval(task types.Task, action, comment string) error {
+	signKey, ok := c.SignKeys[task.WebhookKey]
+	if !ok {
+		return fmt.Errorf("未找到 webhookKey=%s 对应的 sign_key", task.WebhookKey)
 	}
 
-	return form, details, nil
-}
-
-func (c *Checker) CallbackApproval(flowID, nodeID, action, comment string) error {
-	return c.callbackApproval(flowID, nodeID, action, comment)
-}
-
-func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error {
 	body, _ := json.Marshal(map[string]string{
-		"signKey": c.SignKey,
-		"flowId":  flowID,
-		"nodeId":  nodeID,
+		"signKey": signKey,
+		"flowId":  task.FlowID,
+		"nodeId":  task.NodeID,
 		"action":  action,
 		"comment": comment,
 	})
@@ -385,17 +140,6 @@ func (c *Checker) callbackApproval(flowID, nodeID, action, comment string) error
 		}
 	}
 
-	log.Printf("[Consumer] 审批回调成功: flowID=%s action=%s", flowID, action)
+	log.Printf("[Consumer] 审批回调成功: flowID=%s action=%s", task.FlowID, action)
 	return nil
-}
-
-func joinStrings(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
-	}
-	return result
 }

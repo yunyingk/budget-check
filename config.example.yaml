@@ -11,25 +11,17 @@ ekuaibao:
   host: "https://app.ekuaibao.com"  # 合思 API 域名，不带路径
   app_key: "your-app-key-here"      # 应用 Key
   app_secret: "your-app-secret-here" # 应用 Secret
-  sign_key: "your-sign-key-here"    # 出站消息签名密钥，用于回调审批
 
-# 预算同步白名单及钻取深度
-# 只有 id 匹配到的预算包才会被同步，depth 控制向下钻取几层子节点
-# depth=1 只拉一层，depth=3 拉三层（部门-档案-项目）
-# 未出现在此列表中的预算包会被跳过
-budget_targets:
-  # depth 含义：包含根节点。depth=1 只有根节点本身，depth=2 根+子节点，depth=3 根+子节点+孙节点
-  - id: "ID01T5nPu92vH9"        # 2026成本中心预算包
-    name: "成本中心预算"
-    depth: 99
-  - id: "ID01RFKVaUa4q3"        # 项目预算包
-    name: "项目预算"
-    depth: 99
-
-# 生产费用豁免项目 ID
-# 命中这些 ID 的项目走公摊豁免分支：不校验项目本身，只校验成本中心和费用档案
-# 具体 ID 由客户配置
-exempt_projects: []
+# Webhook 配置（可多个）
+# 每个 webhook 下属的预算包 id 会被同步拉取
+webhooks:
+  budget-check:
+    sign_key: "your-sign-key-here"  # 出站消息签名密钥，用于回调审批
+    targets:
+      - id: "ID01T5nPu92vH9"        # 2026成本中心预算包
+        name: "成本中心预算"
+      - id: "ID01RFKVaUa4q3"        # 项目预算包
+        name: "项目预算"
 
 # 预算数据自动同步间隔
 sync:

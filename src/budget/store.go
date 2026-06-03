@@ -10,6 +10,7 @@ import (
 type Node struct {
 	DimCode  string                // 维度内容ID
 	DimType  string                // 维度类型，从 API dimensionType 字段获取
+	DimId    string                // 维度ID（dimensionId）= 表单字段名
 	NodeName string                // 节点名称
 	NodeID   string                // 预算节点ID（API nodeId），用于去重
 	IsLeaf   bool                  // 是否叶子节点

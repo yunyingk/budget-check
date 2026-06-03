@@ -1,13 +1,14 @@
 package main
 
 import (
+	"budget/src/app"
+	"budget/src/config"
+	rotatelog "budget/src/log"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"path/filepath"
-
-	"budget/src/budget"
 )
 
 func main() {
@@ -33,29 +34,31 @@ func main() {
 		return
 	}
 
-	var err error
-	cfg, err = LoadConfig(*configPath)
+	cfg, err := config.LoadConfig(*configPath)
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
 
-	logger, err := NewRotatingLogger("logs", RotatePeriod(cfg.Logging.Rotation))
+	logger, err := rotatelog.New("logs", rotatelog.Period(cfg.Logging.Rotation))
 	if err != nil {
 		log.Fatalf("初始化日志失败: %v", err)
 	}
 	defer logger.Close()
 	log.SetOutput(logger)
 
+	a := app.New(cfg, logger)
+	a.Version = version
+
 	if *syncNow {
 		fmt.Printf("合思预算校验服务 v%s\n", version)
-		initComponents()
-		budget.Sync(store, client, syncCfg)
-		fmt.Printf("同步完成，缓存条目: %d\n", store.Count())
+		a.Init()
+		a.Sync()
+		fmt.Printf("同步完成，缓存条目: %d\n", a.Store.Count())
 		return
 	}
 
 	// 平台特定：尝试作为 Windows 服务运行
-	if tryRunAsService() {
+	if tryRunAsService(a) {
 		return
 	}
 
@@ -64,10 +67,13 @@ func main() {
 
 	// 无参数时显示交互式菜单（双击运行）
 	if flag.NFlag() == 0 {
-		showInteractiveMenu()
+		showInteractiveMenu(a)
 		return
 	}
 
 	// 控制台模式
-	mainLogic()
+	a.Init()
+	if err := a.Run(); err != nil {
+		log.Fatalf("服务启动失败: %v", err)
+	}
 }

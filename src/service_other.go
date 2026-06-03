@@ -2,7 +2,10 @@
 
 package main
 
-import "fmt"
+import (
+	"budget/src/app"
+	"fmt"
+)
 
 func handleInstall() {
 	fmt.Printf("合思预算校验服务 v%s\n", version)
@@ -14,10 +17,11 @@ func handleUninstall() {
 	fmt.Println("服务卸载仅支持 Windows")
 }
 
-func tryRunAsService() bool {
+func tryRunAsService(a *app.App) bool {
 	return false
 }
 
-func showInteractiveMenu() {
-	mainLogic()
+func showInteractiveMenu(a *app.App) {
+	a.Init()
+	a.Run()
 }

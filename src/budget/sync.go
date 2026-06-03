@@ -13,9 +13,8 @@ import (
 
 // Target 预算包同步目标配置
 type Target struct {
-	ID    string
-	Name  string
-	Depth int
+	ID   string
+	Name string
 }
 
 // SyncConfig 同步配置
@@ -44,30 +43,36 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 		log.Printf("[Sync] 获取预算列表失败: %v", err)
 		return
 	}
+	log.Printf("[Sync] 全量预算包共 %d 个:", len(budgets))
+	for _, b := range budgets {
+		bName, _ := b["name"].(string)
+		bID, _ := b["id"].(string)
+		log.Printf("    [%s] %s", bID, bName)
+	}
 
 	for _, b := range budgets {
 		bName, _ := b["name"].(string)
 		bID, _ := b["id"].(string)
 
-		targetDepth := 0
+		matched := false
 		for _, t := range cfg.Targets {
 			if t.ID != "" {
 				if bID == t.ID {
-					targetDepth = t.Depth
+					matched = true
 					break
 				}
 			} else if strings.Contains(bName, t.Name) {
-				targetDepth = t.Depth
+				matched = true
 				break
 			}
 		}
-		if targetDepth == 0 {
+		if !matched {
 			log.Printf("    [Skip] 跳过: %s", bName)
 			continue
 		}
 
-		log.Printf("[Sync] 同步: %s (深度: %d)", bName, targetDepth)
-		buildTree(store, bID, bName, client, token, cfg.Workers, targetDepth)
+		log.Printf("[Sync] 同步: %s", bName)
+		buildTree(store, bID, bName, client, token, cfg.Workers)
 		log.Printf("    -> %s 完成, 当前总条目: %d", bName, store.Count())
 	}
 
@@ -80,11 +85,12 @@ type rawNode struct {
 	nodeName string
 	dimCode  string
 	dimType  string
+	dimId    string // dimensionId = 表单字段名
 	isLeaf   bool
 }
 
 // buildTree 从根节点开始逐层构建预算包树，边建边往 store 索引里写
-func buildTree(store *Store, bID, bName string, client *ekb.Client, token string, workers, maxDepth int) {
+func buildTree(store *Store, bID, bName string, client *ekb.Client, token string, workers int) {
 	tree := &Tree{
 		ID:   bID,
 		Name: bName,
@@ -110,13 +116,11 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		return
 	}
 
-	tree.MaxDepth = maxDepth
 	store.addTreeRef(tree)
 
 	type drillTask struct {
 		parent map[string]*Node
 		nodeID string
-		depth  int
 	}
 
 	var pendingDrills []drillTask
@@ -125,6 +129,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		node := &Node{
 			DimCode:  rn.dimCode,
 			DimType:  rn.dimType,
+			DimId:    rn.dimId,
 			NodeName: rn.nodeName,
 			NodeID:   rn.nodeID,
 			IsLeaf:   rn.isLeaf,
@@ -132,18 +137,16 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		}
 		tree.Root[rn.dimCode] = node
 		store.indexNode(rn.dimCode, node, tree)
-		if !rn.isLeaf && maxDepth > 1 && !drilled[rn.nodeID] {
+		if !rn.isLeaf && !drilled[rn.nodeID] {
 			drilled[rn.nodeID] = true
-			pendingDrills = append(pendingDrills, drillTask{parent: node.Children, nodeID: rn.nodeID, depth: 1})
+			pendingDrills = append(pendingDrills, drillTask{parent: node.Children, nodeID: rn.nodeID})
 		}
 	}
 	log.Printf("    [Layer 1] 根节点 %d 个, 当前总条目: %d", len(rootNodes), store.Count())
 
-	for depth := 1; depth < maxDepth; depth++ {
-		if len(pendingDrills) == 0 {
-			break
-		}
-		log.Printf("    [Layer %d] 钻取 %d 个节点... 当前总条目: %d", depth+1, len(pendingDrills), store.Count())
+	layer := 2
+	for len(pendingDrills) > 0 {
+		log.Printf("    [Layer %d] 钻取 %d 个节点... 当前总条目: %d", layer, len(pendingDrills), store.Count())
 
 		type drillResult struct {
 			parent   map[string]*Node
@@ -189,14 +192,15 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 				}
 				res.parent[rn.dimCode] = node
 				store.indexNode(rn.dimCode, node, tree)
-				if !rn.isLeaf && res.task.depth+1 < maxDepth && !drilled[rn.nodeID] {
+				if !rn.isLeaf && !drilled[rn.nodeID] {
 					drilled[rn.nodeID] = true
-					nextDrills = append(nextDrills, drillTask{parent: node.Children, nodeID: rn.nodeID, depth: res.task.depth + 1})
+					nextDrills = append(nextDrills, drillTask{parent: node.Children, nodeID: rn.nodeID})
 				}
 			}
 		}
 
 		pendingDrills = nextDrills
+		layer++
 	}
 }
 
@@ -369,12 +373,14 @@ func parseRawNodes(nodes []interface{}) ([]rawNode, []string) {
 			content, _ := c.(map[string]interface{})
 			dimCode, _ := content["contentId"].(string)
 			dimType, _ := content["dimensionType"].(string)
+			dimId, _ := content["dimensionId"].(string)
 			if dimCode != "" {
 				result = append(result, rawNode{
 					nodeID:   nID,
 					nodeName: nName,
 					dimCode:  dimCode,
 					dimType:  dimType,
+					dimId:    dimId,
 					isLeaf:   isLeaf,
 				})
 			}

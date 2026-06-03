@@ -1,211 +1,212 @@
-# Budget Check Agent
+# 合思预算校验服务
 
-> **Automated Budget Validation Agent** — Event-driven webhook agent for real-time expense budget compliance checking.
+接收合思审批单据 Webhook，根据配置规则自动校验预算，回调审批结果。
 
-合思（易快报）预算校验智能体：基于事件驱动架构的自动化预算合规校验 Agent，通过 Webhook 接收审批事件，异步执行多维度预算规则引擎，并自动回调审批结果。
+## 快速开始
 
-## Highlights
+1. 把 `budget-check.exe` 和 `config.yaml` 放在同一目录
+2. 把规则文件放在 `rules/` 目录下（如 `rules/budget-check.json`）
+3. 双击运行，选择"启动服务"
 
-- **Agent Workflow** — Webhook 事件触发 → 异步任务队列 → 规则引擎校验 → 审批回调，完整闭环
-- **Hierarchical In-Memory Cache** — 树形预算数据内存缓存，启动时全量同步，定时增量刷新，查询零 IO
-- **Multi-branch Rule Engine** — 按费用性质（业务/管理/生产/豁免）自动路由至不同校验分支，支持多维度交叉校验
-- **Fault Isolation** — Consumer 端 panic recover，单任务异常不影响队列持续消费
-- **Event-Driven Architecture** — 异步解耦，Webhook 入队即返回，校验与审批流程非阻塞
-- **Production-Grade Windows Service** — 原生注册为 Windows Service，开机自启，支持日志轮转
-
-## Architecture
+## 架构
 
 ```
-┌──────────┐    Webhook     ┌──────────────┐   Enqueue   ┌───────────┐
-│  合思审批  │ ────────────► │ webhook.Handle│ ──────────► │ Task Queue│
-│  Platform │  (Event Push)  └──────────────┘             └─────┬─────┘
-└──────────┘                                                     │
-       ▲                                                         │ Dequeue
-       │ Callback                                                ▼
-       │                                                 ┌──────────────┐
-       │                                                 │ consumer.    │
-       └───────────────────────────────────────────────── │ Process()    │
-                                                         └──────┬───────┘
-                                                                │
-                                                         ┌──────▼───────┐
-                                                         │ Rule Engine  │
-                                                         │ (Multi-branch)│
-                                                         └──────────────┘
+合思审批 → Webhook → 入队 → 规则引擎校验 → 审批回调
+                            ↓
+                     预算树匹配（多层维度）
 ```
 
-## Rule Engine
+- 启动时加载配置 + 编译规则引擎
+- 首次同步预算数据后开始消费队列
+- 消费端有 recover 保护，单条任务 panic 不影响后续
 
-### 费用性质路由
+## 配置文件
 
-| 费用性质 | 校验策略 | 校验维度 |
-|---------|---------|---------|
-| 业务/管理 | 成本中心预算包 | 成本中心 + 明细费用档案 |
-| 生产（非豁免） | 项目预算包 ∩ 成本中心预算包 | 多维交叉校验（两个都须命中） |
-| 生产（豁免） | 成本中心预算包 | 同业务/管理 |
-| 未知 | Reject | 直接拒绝 |
+### config.yaml
 
-### 成本中心预算包（Hierarchical Cache）
+```yaml
+# 服务端口
+server:
+  port: 8000
 
+# 合思开放平台配置
+ekuaibao:
+  host: "https://app.ekuaibao.com"
+  app_key: "你的 AppKey"
+  app_secret: "你的 AppSecret"
+
+# Webhook 配置（可配置多个）
+webhooks:
+  budget-check:                          # webhook 名称，对应规则文件名
+    sign_key: "签名密钥"                  # 用于回调审批的签名
+    targets:                             # 需要同步的预算包列表
+      - id: "预算包ID"                    # 合思后台的预算包 ID
+        name: "预算包名称"
+    rules: "rules/budget-check.json"     # 规则文件路径（可选，默认 rules/{webhook名}.json）
+
+# 数据同步
+sync:
+  interval_minutes: 60                   # 自动同步间隔（分钟）
+  workers: 10                            # 同步并发数
+  password: "root"                       # 手动同步密码（为空则不需要密码）
+  queue_size: 100                        # 任务队列大小
+
+# 日志
+logging:
+  level: "info"                          # debug / info / warn / error
+  rotation: "daily"                      # daily / weekly / monthly
+
+# Web 管理页面
+web:
+  enabled: true
+  password: "root"
 ```
-成本中心预算包 (Root)
-├── 成本中心 (Level 1) ← 匹配校验
-│   └── 预算管控 (Level 2) ← 透传（单值节点）
-│       └── 费用档案 (Level 3) ← 逐条明细校验
-```
 
-### 项目预算包（Hierarchical Cache）
+### rules/budget-check.json
 
-```
-项目预算包 (Root)
-├── 项目 (Level 1) ← 匹配校验
-│   └── 成本中心 (Level 2) ← 可选校验（存在则校验，不存在则 skip）
-```
-
-## API Reference
-
-| Method | Endpoint | Description | Auth |
-|--------|----------|-------------|------|
-| GET | `/api/status` | Health check & cache status | — |
-| GET/POST | `/api/sync` | Trigger manual cache refresh | `?password=` |
-| GET | `/api/config` | Runtime configuration | `?password=` |
-| POST | `/api/webhook/budget-check` | Webhook event entrypoint | — |
-
-### Webhook Payload
+规则文件定义每个预算包的校验工作流。文件名与 webhook 名称对应。
 
 ```json
 {
-  "code": "HS2026050334",
-  "flowId": "ID01T0bZEtkW1G",
-  "nodeId": "FLOW:1357809991:1128586113"
+  "version": 1,
+  "targets": [
+    {
+      "id": "预算包ID",
+      "name": "成本中心预算",
+      "steps": [
+        { "action": "split_detail" },
+        { "action": "split_apportion" },
+        { "action": "match_info_to_budget" }
+      ]
+    }
+  ]
 }
 ```
 
-### Accepted Response
+## 工作流 Steps
+
+每个预算包（target）是一个独立工作流，`steps` 顺序执行。
+
+### 初始数据集
+
+开始时数据集 = `[单据表单]`，一条记录就是一个字段集合。
+
+### 数据变换动作
+
+| action | 说明 |
+|--------|------|
+| `split_detail` | 按 `details` 字段拆分为多条明细记录 |
+| `split_apportion` | 按 `apportions` 字段拆分为多条分摊记录 |
+
+### 判断动作
+
+对数据集中每条记录执行：
+
+| when | then | 行为 |
+|------|------|------|
+| `true` | `pass` | 该记录跳过后续 steps，视为通过 |
+| `true` | `refuse` | 拒绝，可配置 `reason` 说明原因 |
+| `true` | `commit` | 保留该记录，后续非 split 步骤跳过，直接进入最终匹配 |
+| `false` | 任意 | 跳过该 step，记录继续执行后续 steps |
+| 省略 | 省略 | `action` 为 `match_info_to_budget` 时执行预算包匹配 |
+
+### Step 字段
+
+| 字段 | 说明 |
+|------|------|
+| `description` | 步骤描述（配置注释，前端展示用） |
+| `action` | 动作类型：`split_detail` / `split_apportion` / `match_info_to_budget` |
+| `when` | 条件表达式（支持 expr-lang 语法） |
+| `then` | 满足 when 时的动作：`pass` / `refuse` / `commit` |
+| `reason` | 拒绝原因（then=refuse 时返回给审批系统） |
+
+## 预算包匹配
+
+`action: "match_info_to_budget"` 逐层匹配预算树：
+
+1. 取当前层节点的 `dimensionId`（维度字段名）作为表单字段名
+2. 用该字段的值在当前层节点中查找
+3. 找不到则向上查找祖先节点（支持自定义档案的父子级关系）
+4. 匹配成功进入下一层，直到叶子节点
+
+## 规则示例
+
+### 成本中心预算（三步全量）
 
 ```json
 {
-  "budget-check": "1",
-  "success": true,
-  "message": "已入队等待处理",
-  "task_id": "260520-a1b2c3-050334"
+  "id": "ID01TsPQJFK1RR",
+  "name": "成本中心预算",
+  "steps": [
+    { "description": "按费用明细拆分", "action": "split_detail" },
+    { "description": "启动分摊", "action": "split_apportion" },
+    { "description": "匹配成本中心预算包", "action": "match_info_to_budget" }
+  ]
 }
 ```
 
-## Deployment
+### 项目预算（带条件过滤）
 
-### 1. 编译
-
-```bash
-GOOS=windows GOARCH=amd64 go build -o budget-check.exe ./src
+```json
+{
+  "id": "ID01T5kHipEY7J",
+  "name": "项目预算",
+  "steps": [
+    { "description": "费用性质非生产时免校验", "when": "u_费用性质 != 'ID01LPDfjPcnyn'", "then": "pass" },
+    { "description": "按费用明细拆分", "action": "split_detail" },
+    { "description": "指定项目免校验", "when": "项目 == 'ID01LZNNxip807'", "then": "pass" },
+    { "description": "启动分摊", "action": "split_apportion" },
+    { "description": "匹配项目预算包", "action": "match_info_to_budget" }
+  ]
+}
 ```
 
-### 2. 部署到目标机器
+### 费用明细内部分行独立校验
 
-将 `budget-check.exe` 和 `config.yaml` 放到同一目录（如 `C:\BudgetProject\`）。
+每条明细独立执行后续 steps，一条明细 pass 不影响其他明细：
 
-### 3. 注册为 Windows 服务
-
-```bat
-budget-check.exe -install
+```
+单据 → split_detail → [明细1, 明细2, 明细3]
+  明细1: when 条件命中 → pass（跳过）
+  明细2: 继续 → split_apportion → match_info_to_budget
+  明细3: commit → 跳过后续步骤，直接进入最终匹配
 ```
 
-卸载服务：
+## API 接口
 
-```bat
-budget-check.exe -uninstall
+| 路径 | 说明 | 认证 |
+|------|------|------|
+| `POST /api/webhook/{name}` | 合思 Webhook 入口 | 无 |
+| `GET /api/status` | 服务状态 | 无 |
+| `GET /api/rules/{webhookKey}` | 规则配置查询 | 登录 |
+| `GET /api/webhooks` | Webhook 列表 | 登录 |
+| `GET /api/history` | 最近处理记录 | 登录 |
+| `POST /api/sync?password=xxx` | 手动触发同步 | password |
+| `GET /` | 管理页面 | 登录 |
+
+## 部署
+
+### Windows 服务
+
+```cmd
+budget-check.exe --install    # 注册为 Windows 服务
+budget-check.exe --uninstall  # 卸载服务
 ```
 
-> 程序自动注册为 Windows 服务，开机自启，无需额外安装任何工具。
+### 手动同步
 
-### 其他模式
-
-```bat
-# 控制台模式（调试用，直接运行即可）
-budget-check.exe
-
-# 手动同步一次后退出
-budget-check.exe -sync
+```cmd
+budget-check.exe --sync --config config.yaml
 ```
 
-## 配置
+### Webhook 配置
 
-配置文件加载优先级：
-1. 命令行 `-config` 指定路径
-2. `config/config.yaml`（优先）
-3. `config.yaml`（兜底）
-
-编辑 `config.yaml`，修改合思密钥、同步间隔、日志轮转等。
+在合思后台 → 出站消息 → 新建：
+- 请求地址：`http://你的服务器:8000/api/webhook/budget-check`
+- 签名密钥：与 config.yaml 中的 `sign_key` 一致
 
 ## 日志
 
 - 自动创建 `logs/` 目录，日志按周期轮转
 - 文件命名：daily=`2026-05-20.log`、weekly=`2026-W21.log`、monthly=`2026-05.log`
 - 在 `config.yaml` 的 `logging.rotation` 中配置周期
-
-## 接口
-
-| 方法 | 路径 | 说明 | 认证 |
-|------|------|------|------|
-| GET | /api/status | 健康检查，查看缓存状态 | 无 |
-| GET/POST | /api/sync | 手动触发同步 | query `password` |
-| GET | /api/config | 查看运行配置 | query `password`，密码为空时禁用 |
-| POST | /api/webhook/budget-check | 单据校验入队 | 无 |
-
-### 单据校验请求示例
-
-```json
-{
-  "code": "HS2026050334",
-  "flowId": "ID01T0bZEtkW1G",
-  "nodeId": "FLOW:1357809991:1128586113"
-}
-```
-
-### 成功响应
-
-```json
-{
-  "budget-check": "1",
-  "success": true,
-  "message": "已入队等待处理",
-  "task_id": "260520-a1b2c3-050334"
-}
-```
-
-## 校验规则
-
-### 费用性质分支
-
-| 费用性质 | 校验逻辑 |
-|---------|---------|
-| 业务/管理 | 成本中心预算包：成本中心 + 明细费用档案 |
-| 生产（非豁免） | 项目预算包 + 成本中心预算包（两个都命中） |
-| 生产（豁免） | 同业务/管理 |
-| 未知 | 直接拒绝 |
-
-### 成本中心预算包结构
-
-```
-成本中心预算包
-├── 成本中心 (level 1) ← 校验
-│   └── 预算管控 (level 2) ← 跳过（只有一个固定值）
-│       └── 费用档案 (level 3) ← 从明细逐条校验
-```
-
-### 项目预算包结构
-
-```
-项目预算包
-├── 项目 (level 1) ← 校验
-│   └── 成本中心 (level 2) ← 如果存在则校验，不存在则跳过
-```
-
-## 架构
-
-```
-HTTP请求 → webhook.Handle() → 入队 → consumer.Process() → 审批回调
-```
-
-- 服务启动即可接收请求入队
-- 首次同步完成后开始消费队列
-- 消费端有 recover 保护，单条任务 panic 不影响后续消费

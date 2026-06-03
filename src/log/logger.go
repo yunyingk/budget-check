@@ -1,4 +1,4 @@
-package main
+package rotatelog
 
 import (
 	"fmt"
@@ -10,24 +10,27 @@ import (
 	"time"
 )
 
-type RotatePeriod string
+// Period 日志轮转周期
+type Period string
 
 const (
-	RotateDaily   RotatePeriod = "daily"
-	RotateWeekly  RotatePeriod = "weekly"
-	RotateMonthly RotatePeriod = "monthly"
+	Daily   Period = "daily"
+	Weekly  Period = "weekly"
+	Monthly Period = "monthly"
 )
 
+// RotatingLogger 按日/周/月轮转的日志器
 type RotatingLogger struct {
-	mu       sync.Mutex
-	dir      string
-	period   RotatePeriod
-	current  string
-	file     *os.File
-	writer   io.Writer
+	mu     sync.Mutex
+	dir    string
+	period Period
+	current string
+	file   *os.File
+	writer io.Writer
 }
 
-func NewRotatingLogger(dir string, period RotatePeriod) (*RotatingLogger, error) {
+// New 创建日志器
+func New(dir string, period Period) (*RotatingLogger, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("创建日志目录失败: %w", err)
 	}
@@ -46,12 +49,12 @@ func NewRotatingLogger(dir string, period RotatePeriod) (*RotatingLogger, error)
 func (l *RotatingLogger) logFile() string {
 	now := time.Now()
 	switch l.period {
-	case RotateDaily:
+	case Daily:
 		return filepath.Join(l.dir, now.Format("2006-01-02")+".log")
-	case RotateWeekly:
+	case Weekly:
 		_, w := now.ISOWeek()
 		return filepath.Join(l.dir, fmt.Sprintf("%s-W%02d.log", now.Format("2006"), w))
-	case RotateMonthly:
+	case Monthly:
 		return filepath.Join(l.dir, now.Format("2006-01")+".log")
 	default:
 		return filepath.Join(l.dir, now.Format("2006-01-02")+".log")
@@ -105,6 +108,7 @@ func (l *RotatingLogger) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
+// Close 关闭日志文件
 func (l *RotatingLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
