@@ -47,10 +47,11 @@ type WebConfig struct {
 
 // Config 全局运行时配置
 type Config struct {
-	Server   ServerConfig            `yaml:"server"`
-	Ekb      EkbConfig               `yaml:"ekuaibao"`
-	Webhooks map[string]WebhookEntry `yaml:"webhooks"`
-	Sync     SyncConfig              `yaml:"sync"`
-	Logging  LogConfig               `yaml:"logging"`
-	Web      WebConfig               `yaml:"web"`
+	Server       ServerConfig            `yaml:"server"`
+	Ekb          EkbConfig               `yaml:"ekuaibao"`
+	Webhooks     map[string]WebhookEntry `yaml:"webhooks"`
+	Sync         SyncConfig              `yaml:"sync"`
+	Logging      LogConfig               `yaml:"logging"`
+	Web          WebConfig               `yaml:"web"`
+	DimensionMap map[string]string       `yaml:"dimension_map,omitempty"` // dimType -> fieldName
 }

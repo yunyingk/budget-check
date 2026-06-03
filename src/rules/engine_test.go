@@ -19,7 +19,7 @@ func TestNewEngine_Compiles(t *testing.T) {
 			}},
 		},
 	}
-	if _, err := NewEngine(nil, nil, cfg); err != nil {
+	if _, err := NewEngine(nil, nil, cfg, nil); err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 }
@@ -30,13 +30,13 @@ func TestNewEngine_BadExpr(t *testing.T) {
 			ID: "T1", Name: "坏规则", Steps: []types.Step{{When: `this is not valid`}},
 		}},
 	}
-	if _, err := NewEngine(nil, nil, cfg); err == nil {
+	if _, err := NewEngine(nil, nil, cfg, nil); err == nil {
 		t.Fatal("expected compile error")
 	}
 }
 
 func TestNewEngine_NilConfig(t *testing.T) {
-	e, err := NewEngine(nil, nil, nil)
+	e, err := NewEngine(nil, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,147 +45,161 @@ func TestNewEngine_NilConfig(t *testing.T) {
 	}
 }
 
-func TestNewEngine_GlobalSteps(t *testing.T) {
-	cfg := &types.RulesConfig{
-		GlobalSteps: []types.Step{
-			{When: `u_费用性质 == 'A'`, Then: "pass", Action: "全局通过"},
-		},
-		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试", Steps: []types.Step{{Action: "match_info_to_budget"}},
-		}},
-	}
-	e, err := NewEngine(nil, nil, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(e.globalSteps) != 1 {
-		t.Fatalf("expected 1 global step, got %d", len(e.globalSteps))
-	}
-}
-
-func TestRunTarget_WhenTruePass(t *testing.T) {
+func TestEvaluate_StepPass(t *testing.T) {
 	cfg := &types.RulesConfig{
 		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试包", Steps: []types.Step{
+			ID: "T1", Name: "测试包",
+			Steps: []types.Step{
 				{When: `u_费用性质 in ['X','Y']`, Then: "pass"},
 			},
 		}},
 	}
-	e, err := NewEngine(nil, nil, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	form := map[string]interface{}{"u_费用性质": "X"}
-	unit := CheckUnit{Label: "明细1"}
-	if msg := e.runTarget(&e.targets[0], unit, form); msg != "" {
-		t.Errorf("expected pass (empty msg), got %q", msg)
+	e, _ := NewEngine(nil, nil, cfg, nil)
+	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"}, nil)
+	if action != "accept" {
+		t.Errorf("expected accept, got %s/%s", action, comment)
 	}
 }
 
-func TestRunTarget_WhenTrueRefuse(t *testing.T) {
+func TestEvaluate_StepRefuse(t *testing.T) {
 	cfg := &types.RulesConfig{
 		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试包", Steps: []types.Step{
+			ID: "T1", Name: "测试包",
+			Steps: []types.Step{
 				{When: `u_费用性质 == 'X'`, Then: "refuse"},
 			},
 		}},
 	}
-	e, err := NewEngine(nil, nil, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	form := map[string]interface{}{"u_费用性质": "X"}
-	unit := CheckUnit{Label: "明细1"}
-	if msg := e.runTarget(&e.targets[0], unit, form); msg == "" {
-		t.Error("expected refusal, got empty")
+	e, _ := NewEngine(nil, nil, cfg, nil)
+	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"}, nil)
+	if action != "refuse" {
+		t.Errorf("expected refuse, got %s/%s", action, comment)
 	}
 }
 
-func TestRunTarget_WhenFalseSkips(t *testing.T) {
+func TestEvaluate_StepRefuseWithReason(t *testing.T) {
 	cfg := &types.RulesConfig{
 		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试包", Steps: []types.Step{
+			ID: "T1", Name: "测试包",
+			Steps: []types.Step{
+				{When: `u_费用性质 == 'X'`, Then: "refuse", Reason: "不符合预算要求"},
+			},
+		}},
+	}
+	e, _ := NewEngine(nil, nil, cfg, nil)
+	_, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"}, nil)
+	if comment != "单据 不符合预算要求" {
+		t.Errorf("expected reason comment, got %s", comment)
+	}
+}
+
+func TestEvaluate_WhenFalseSkips(t *testing.T) {
+	cfg := &types.RulesConfig{
+		Targets: []types.RuleTarget{{
+			ID: "T1", Name: "测试包",
+			Steps: []types.Step{
 				{When: `u_费用性质 == 'X'`},
 			},
 		}},
 	}
-	e, err := NewEngine(nil, nil, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	form := map[string]interface{}{"u_费用性质": "Z"}
-	unit := CheckUnit{Label: "明细1"}
-	if msg := e.runTarget(&e.targets[0], unit, form); msg != "" {
-		t.Errorf("expected no refusal (when=false, skip), got %q", msg)
+	e, _ := NewEngine(nil, nil, cfg, nil)
+	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "Z"}, nil)
+	if action != "accept" {
+		t.Errorf("expected accept (when=false skip), got %s/%s", action, comment)
 	}
 }
 
-func TestRunTarget_CompoundExpr(t *testing.T) {
+func TestEvaluate_SplitDetail(t *testing.T) {
 	cfg := &types.RulesConfig{
 		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试", Steps: []types.Step{
-				{When: `u_费用性质 in ['A','B'] && 项目 == 'P1'`, Then: "pass"},
+			ID: "T1", Name: "测试",
+			Steps: []types.Step{
+				{Action: "split_detail"},
+				{When: `项目 == 'P1'`, Then: "pass"},
 			},
 		}},
 	}
-	e, _ := NewEngine(nil, nil, cfg)
-	// 条件满足 → pass
-	form := map[string]interface{}{"u_费用性质": "A", "项目": "P1"}
-	unit := CheckUnit{Label: "X"}
-	if msg := e.runTarget(&e.targets[0], unit, form); msg != "" {
-		t.Errorf("expected pass, got %q", msg)
-	}
-	// 条件不满足 → 跳过该 step，无 action，自然通过
-	form["项目"] = "P2"
-	if msg := e.runTarget(&e.targets[0], unit, form); msg != "" {
-		t.Errorf("when=false should skip step, got %q", msg)
-	}
-}
-
-func TestEvaluate_GlobalSteps(t *testing.T) {
-	cfg := &types.RulesConfig{
-		GlobalSteps: []types.Step{
-			{When: `u_费用性质 == 'A'`, Then: "pass", Action: "免校验"},
+	e, _ := NewEngine(nil, nil, cfg, nil)
+	form := map[string]interface{}{
+		"项目": "PX",
+		"details": []interface{}{
+			map[string]interface{}{"项目": "P1"},
+			map[string]interface{}{"项目": "P2"},
 		},
-		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试", Steps: []types.Step{{Action: "match_info_to_budget"}},
-		}},
 	}
-	store := budget.NewStore()
-	e, _ := NewEngine(store, nil, cfg)
-
-	// 全局 pass
-	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "A"}, nil)
-	if action != "accept" || comment != "免校验" {
-		t.Errorf("expected global pass, got %s/%s", action, comment)
-	}
-
-	// 不满足全局条件 → 继续 target 校验（store 为空树，预算包未同步）
-	action, comment = e.Evaluate(map[string]interface{}{"u_费用性质": "B"}, nil)
-	if action != "refuse" {
-		t.Errorf("expected refuse (no store), got %s/%s", action, comment)
-	}
-}
-
-func TestEvaluate_SplitMode(t *testing.T) {
-	cfg := &types.RulesConfig{
-		SplitMode: "detail",
-		Targets: []types.RuleTarget{{
-			ID: "T1", Name: "测试", Steps: []types.Step{{When: `项目 == 'P1'`, Then: "pass"}},
-		}},
-	}
-	e, _ := NewEngine(nil, nil, cfg)
-
-	// detail 模式：details 里项目=P1 的明细应被 pass
-	form := map[string]interface{}{"项目": "PX"}
-	details := []map[string]interface{}{
-		{"项目": "P1"},
-		{"项目": "P2"},
-	}
-	action, comment := e.Evaluate(form, details)
-	// 第一个 detail 项目=P1 → pass；第二个 detail 项目=P2 → 不满足条件，无 action，通过
-	// 两个 target 都无拒绝理由
+	action, comment := e.Evaluate(form, nil)
 	if action != "accept" {
 		t.Errorf("expected accept, got %s/%s", action, comment)
+	}
+}
+
+func TestEvaluate_TwoTargets(t *testing.T) {
+	cfg := &types.RulesConfig{
+		Targets: []types.RuleTarget{
+			{ID: "T1", Name: "A预算", Steps: []types.Step{{Action: "match_info_to_budget"}}},
+			{ID: "T2", Name: "B预算", Steps: []types.Step{{Action: "match_info_to_budget"}}},
+		},
+	}
+	store := budget.NewStore()
+	e, _ := NewEngine(store, nil, cfg, nil)
+	action, comment := e.Evaluate(map[string]interface{}{}, nil)
+	if action != "refuse" {
+		t.Errorf("expected refuse, got %s/%s", action, comment)
+	}
+	if comment == "" {
+		t.Error("expected refusal comment")
+	}
+}
+
+func TestSplitDetail_MergesFields(t *testing.T) {
+	units := []CheckUnit{{
+		Label: "单据",
+		Fields: map[string]interface{}{
+			"项目":    "FormProject",
+			"details": []interface{}{
+				map[string]interface{}{
+					"项目": "DetailProject",
+					"feeTypeForm": map[string]interface{}{
+						"u_费用类型档案": "FeeType1",
+					},
+				},
+			},
+		},
+	}}
+	result := splitDetail(units)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(result))
+	}
+	if result[0].Fields["项目"] != "DetailProject" {
+		t.Errorf("expected detail project to override form, got %v", result[0].Fields["项目"])
+	}
+	if result[0].Fields["u_费用类型档案"] != "FeeType1" {
+		t.Errorf("expected feeTypeForm merged, got %v", result[0].Fields["u_费用类型档案"])
+	}
+}
+
+func TestSplitApportion_MergesFields(t *testing.T) {
+	units := []CheckUnit{{
+		Label: "明细1",
+		Fields: map[string]interface{}{
+			"项目": "Original",
+			"apportions": []interface{}{
+				map[string]interface{}{
+					"apportionForm": map[string]interface{}{
+						"项目": "Apportion1",
+					},
+				},
+			},
+		},
+	}}
+	result := splitApportion(units)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 unit, got %d", len(result))
+	}
+	if result[0].Fields["项目"] != "Apportion1" {
+		t.Errorf("expected apportionForm to override, got %v", result[0].Fields["项目"])
+	}
+	if _, ok := result[0].Fields["apportions"]; ok {
+		t.Error("apportions should be deleted after split")
 	}
 }

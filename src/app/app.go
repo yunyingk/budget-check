@@ -90,7 +90,7 @@ func (a *App) Init() error {
 			log.Printf("[Init] webhook=%s 规则文件不存在或加载失败: %v", key, err)
 			continue
 		}
-		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg)
+		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg, a.Config.DimensionMap)
 		if err != nil {
 			log.Printf("[Init] webhook=%s 规则编译失败: %v", key, err)
 			continue
