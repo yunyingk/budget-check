@@ -13,8 +13,9 @@ import (
 
 // CheckUnit 校验单元（一条记录），所有字段放在 Fields 中动态存取
 type CheckUnit struct {
-	Label  string
-	Fields map[string]interface{}
+	Label     string
+	Fields    map[string]interface{}
+	Committed bool // true 表示已提交，后续非-split steps 跳过
 }
 
 // compiledStep 预编译后的 step，when 表达式在加载阶段编译为字节码
@@ -112,9 +113,18 @@ func (e *Engine) runTargetWorkflow(target *compiledTarget, form map[string]inter
 		default:
 			var remaining []CheckUnit
 			for _, unit := range units {
+				if unit.Committed {
+					remaining = append(remaining, unit)
+					continue
+				}
 				msg := e.runStep(target, step, unit, form)
 				if msg == "__PASS__" {
 					continue // 该 unit 已通过，不再执行后续 steps
+				}
+				if msg == "__COMMIT__" {
+					unit.Committed = true
+					remaining = append(remaining, unit)
+					continue // 保留该 unit，后续非-split steps 跳过
 				}
 				if msg != "" {
 					return msg
@@ -128,7 +138,7 @@ func (e *Engine) runTargetWorkflow(target *compiledTarget, form map[string]inter
 }
 
 // runStep 对单个 unit 执行一个 step
-// 返回空字符串 = 继续执行；"__PASS__" = unit 通过；其他 = 拒绝消息
+// 返回空字符串 = 继续执行；"__PASS__" = unit 通过；"__COMMIT__" = unit 提交；其他 = 拒绝消息
 func (e *Engine) runStep(target *compiledTarget, step compiledStep, unit CheckUnit, form map[string]interface{}) string {
 	vars := make(map[string]interface{}, len(form)+len(unit.Fields))
 	for k, v := range form {
@@ -155,6 +165,11 @@ func (e *Engine) runStep(target *compiledTarget, step compiledStep, unit CheckUn
 			log.Printf("[Engine] %s %s: %s", target.def.Name, unit.Label, step.reason)
 		}
 		return "__PASS__"
+	case "commit":
+		if step.reason != "" {
+			log.Printf("[Engine] %s %s committed: %s", target.def.Name, unit.Label, step.reason)
+		}
+		return "__COMMIT__"
 	case "refuse":
 		if step.reason != "" {
 			return fmt.Sprintf("%s %s", unit.Label, step.reason)
@@ -175,6 +190,10 @@ func (e *Engine) runStep(target *compiledTarget, step compiledStep, unit CheckUn
 func splitDetail(units []CheckUnit) []CheckUnit {
 	var result []CheckUnit
 	for _, unit := range units {
+		if unit.Committed {
+			result = append(result, unit)
+			continue
+		}
 		rawDetails, ok := unit.Fields["details"].([]interface{})
 		if !ok || len(rawDetails) == 0 {
 			result = append(result, unit)
@@ -211,6 +230,10 @@ func splitDetail(units []CheckUnit) []CheckUnit {
 func splitApportion(units []CheckUnit) []CheckUnit {
 	var result []CheckUnit
 	for _, unit := range units {
+		if unit.Committed {
+			result = append(result, unit)
+			continue
+		}
 		rawApportions, ok := unit.Fields["apportions"].([]interface{})
 		if !ok || len(rawApportions) == 0 {
 			result = append(result, unit)
