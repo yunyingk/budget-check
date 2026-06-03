@@ -22,7 +22,7 @@
           "action": "split_detail"
         },
         {
-          "description": "按部门/项目分摊拆分",
+          "description": "启动分摊",
           "action": "split_apportion"
         },
         {
@@ -50,7 +50,7 @@
           "action": "split_detail"
         },
         {
-          "description": "按部门/项目分摊拆分",
+          "description": "启动分摊",
           "action": "split_apportion"
         },
         {
