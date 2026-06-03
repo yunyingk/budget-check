@@ -1,0 +1,104 @@
+{
+    "value": {
+        "pipeline": 1,
+        "grayver": "9.163.0.0-prd",
+        "dbVersion": 9,
+        "threadId": "170913",
+        "version": 2,
+        "active": true,
+        "createTime": 1779436506354,
+        "updateTime": 1780037351670,
+        "corporationId": "ID01D3GcYxuyfl",
+        "sourceCorporationId": null,
+        "dataCorporationId": null,
+        "form": {
+            "code": "B26001624",
+            "title": "李雪_无合同报销_2778.8_2026-05-22",
+            "项目": "ID01LZNNxip807",
+            "details": [
+                {
+                    "feeTypeId": "ID01Mx4X47hBmf",
+                    "feeTypeForm": {
+                        "amount": {
+                            "standard": "2778.8",
+                            "standardUnit": "元",
+                            "standardScale": 2,
+                            "standardSymbol": "¥",
+                            "standardNumCode": "156",
+                            "standardStrCode": "CNY"
+                        },
+                        "feeDate": 1778947200000,
+                        "detailId": "TdAkHtKRgIc4rQ",
+                        "detailNo": 1,
+                        "taxAmount": {
+                            "standard": "199.97",
+                            "standardUnit": "元",
+                            "standardScale": 2,
+                            "standardSymbol": "¥",
+                            "standardNumCode": "156",
+                            "standardStrCode": "CNY"
+                        },
+                        "apportions": [
+                            {
+                                "apportionForm": {
+                                    "项目": "ID01LZNNxip807",
+                                    "apportionId": "ID_ktn2SVVeUVO",
+                                    "apportionMoney": {
+                                        "standard": "1389.40",
+                                        "standardUnit": "元",
+                                        "standardScale": 2,
+                                        "standardSymbol": "¥",
+                                        "standardNumCode": "156",
+                                        "standardStrCode": "CNY"
+                                    },
+                                    "u_部门性质": "ID01OstneMuI5F",
+                                    "apportionPercent": "50.00",
+                                    "E_system_costcenter": "ID01LZKkfIeU3l"
+                                },
+                                "specificationId": "ID01D3GcYxuyfl:报销部门&项目分摊:d79049908537026898fba74e3ebf74e301707741"
+                            },
+                            {
+                                "apportionForm": {
+                                    "项目": "ID01LZNNxip807",
+                                    "apportionId": "ID_L5wUzvbVZFG",
+                                    "apportionMoney": {
+                                        "standard": "1389.40",
+                                        "standardUnit": "元",
+                                        "standardScale": 2,
+                                        "standardSymbol": "¥",
+                                        "standardNumCode": "156",
+                                        "standardStrCode": "CNY"
+                                    },
+                                    "u_部门性质": "ID01OstmhAARs3",
+                                    "apportionPercent": "50.00",
+                                    "E_system_costcenter": "ID01LZKkfIf5M3"
+                                },
+                                "specificationId": "ID01D3GcYxuyfl:报销部门&项目分摊:d79049908537026898fba74e3ebf74e301707741"
+                            }
+                        ],
+                        "u_预算管控": "ID01NCUIfdbidp",
+                        "consumptionReasons": "",
+                        "u_对外费用类型": "ID01NNYBOv88Hl",
+                        "u_费用类型档案": "ID01LKm8LXqtGv"
+                    },
+                    "specificationId": "ID01Mx4X47hBmf:expense:f5dd1c2e03d82ae6ab18495d72176b2243e5a907",
+                    "feeType": {
+                        "id": "ID01Mx4X47hBmf",
+                        "name": "会务费-不含专家费",
+                        "parentId": "ID01Mx4YYrEbU3",
+                        "active": true,
+                        "code": "COST43",
+                        "description": null
+                    }
+                }
+            ],
+            "u_部门简称": "ID01PcCPxhEo6b",
+            "u_项目编码": "0000",
+            "E_system_costcenter": "ID01LZKkfIeU3l",
+            "preApprovedNodeName": "出纳支付",
+            "preNodeApprovedTime": 1780017902654,
+            "u_是否利润中心": "ID01NbYnp75GrB"
+        },
+        "id": "ID01TapUfwrXdB"
+    }
+}

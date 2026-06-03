@@ -61,7 +61,7 @@ func (c *Checker) GetHistory() []HistoryItem {
 func (c *Checker) Evaluate(task types.Task) (string, string) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
-	form, details, err := c.fetchFlowData(task.Code)
+	form, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
 		return "refuse", fmt.Sprintf("系统错误：获取单据失败: %v", err)
@@ -75,42 +75,33 @@ func (c *Checker) Evaluate(task types.Task) (string, string) {
 	if engine == nil {
 		return "refuse", fmt.Sprintf("规则引擎未配置: webhook=%s", task.WebhookKey)
 	}
-	return engine.Evaluate(form, details)
+	return engine.Evaluate(form)
 }
 
-func (c *Checker) fetchFlowData(code string) (map[string]interface{}, []map[string]interface{}, error) {
+func (c *Checker) fetchFlowData(code string) (map[string]interface{}, error) {
 	u := c.Client.HostURL("/api/openapi/v1.1/flowDetails/byCode?code=" + code)
 	resp, err := c.Client.Get(u)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, nil, fmt.Errorf("解析响应失败: %w", err)
+		return nil, fmt.Errorf("解析响应失败: %w", err)
 	}
 
 	val, _ := result["value"].(map[string]interface{})
 	if val == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	form, _ := val["form"].(map[string]interface{})
 	if form == nil {
-		return nil, nil, nil
+		return nil, nil
 	}
 
-	var details []map[string]interface{}
-	if rawDetails, ok := form["details"].([]interface{}); ok {
-		for _, d := range rawDetails {
-			if detail, ok := d.(map[string]interface{}); ok {
-				details = append(details, detail)
-			}
-		}
-	}
-
-	return form, details, nil
+	return form, nil
 }
 
 func (c *Checker) CallbackApproval(task types.Task, action, comment string) error {

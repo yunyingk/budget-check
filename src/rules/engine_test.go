@@ -55,7 +55,7 @@ func TestEvaluate_StepPass(t *testing.T) {
 		}},
 	}
 	e, _ := NewEngine(nil, nil, cfg, nil)
-	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"}, nil)
+	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"})
 	if action != "accept" {
 		t.Errorf("expected accept, got %s/%s", action, comment)
 	}
@@ -71,7 +71,7 @@ func TestEvaluate_StepRefuse(t *testing.T) {
 		}},
 	}
 	e, _ := NewEngine(nil, nil, cfg, nil)
-	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"}, nil)
+	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"})
 	if action != "refuse" {
 		t.Errorf("expected refuse, got %s/%s", action, comment)
 	}
@@ -87,7 +87,7 @@ func TestEvaluate_StepRefuseWithReason(t *testing.T) {
 		}},
 	}
 	e, _ := NewEngine(nil, nil, cfg, nil)
-	_, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"}, nil)
+	_, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"})
 	if comment != "单据 不符合预算要求" {
 		t.Errorf("expected reason comment, got %s", comment)
 	}
@@ -103,7 +103,7 @@ func TestEvaluate_WhenFalseSkips(t *testing.T) {
 		}},
 	}
 	e, _ := NewEngine(nil, nil, cfg, nil)
-	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "Z"}, nil)
+	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "Z"})
 	if action != "accept" {
 		t.Errorf("expected accept (when=false skip), got %s/%s", action, comment)
 	}
@@ -127,7 +127,7 @@ func TestEvaluate_SplitDetail(t *testing.T) {
 			map[string]interface{}{"项目": "P2"},
 		},
 	}
-	action, comment := e.Evaluate(form, nil)
+	action, comment := e.Evaluate(form)
 	if action != "accept" {
 		t.Errorf("expected accept, got %s/%s", action, comment)
 	}
@@ -142,7 +142,7 @@ func TestEvaluate_TwoTargets(t *testing.T) {
 	}
 	store := budget.NewStore()
 	e, _ := NewEngine(store, nil, cfg, nil)
-	action, comment := e.Evaluate(map[string]interface{}{}, nil)
+	action, comment := e.Evaluate(map[string]interface{}{})
 	if action != "refuse" {
 		t.Errorf("expected refuse, got %s/%s", action, comment)
 	}

@@ -82,7 +82,7 @@ func compileStep(s types.Step, targetName string) (compiledStep, error) {
 }
 
 // Evaluate 对单据执行规则校验
-func (e *Engine) Evaluate(form map[string]interface{}, details []map[string]interface{}) (string, string) {
+func (e *Engine) Evaluate(form map[string]interface{}) (string, string) {
 	if len(e.targets) == 0 {
 		return "refuse", "未配置校验规则"
 	}
