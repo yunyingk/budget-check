@@ -1,4 +1,4 @@
-package main
+package queue
 
 import (
 	"budget/src/types"
@@ -8,32 +8,34 @@ import (
 	"time"
 )
 
-// taskQueue 全局任务队列
-var taskQueue chan types.Task
-
-// InitQueue 初始化队列
-func InitQueue(size int) {
-	taskQueue = make(chan types.Task, size)
+// Queue 任务队列
+type Queue struct {
+	ch chan types.Task
 }
 
-// Enqueue 入队
-func Enqueue(task types.Task) bool {
+// New 创建指定容量的队列
+func New(size int) *Queue {
+	return &Queue{ch: make(chan types.Task, size)}
+}
+
+// Enqueue 入队，队列满时返回 false
+func (q *Queue) Enqueue(t types.Task) bool {
 	select {
-	case taskQueue <- task:
+	case q.ch <- t:
 		return true
 	default:
 		return false
 	}
 }
 
-// QueueChan 返回队列 channel，供消费端 range
-func QueueChan() <-chan types.Task {
-	return taskQueue
+// Chan 返回队列 channel，供消费端 range
+func (q *Queue) Chan() <-chan types.Task {
+	return q.ch
 }
 
-// QueueLen 当前队列长度
-func QueueLen() int {
-	return len(taskQueue)
+// Len 当前队列长度
+func (q *Queue) Len() int {
+	return len(q.ch)
 }
 
 // GenTaskID 生成任务ID: YYMMDD-随机6位-单号后6位

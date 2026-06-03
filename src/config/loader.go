@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"budget/src/types"
@@ -10,53 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ServerConfig struct {
-	Port int `yaml:"port"`
-}
-
-type EkbConfig struct {
-	Host      string `yaml:"host"`
-	AppKey    string `yaml:"app_key"`
-	AppSecret string `yaml:"app_secret"`
-}
-
-type BudgetTarget struct {
-	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
-}
-
-type WebhookEntry struct {
-	SignKey string         `yaml:"sign_key"`
-	Targets []BudgetTarget `yaml:"targets"`
-	Rules   string         `yaml:"rules"`
-}
-
-type SyncConfig struct {
-	IntervalMinutes int    `yaml:"interval_minutes"`
-	Workers         int    `yaml:"workers"`
-	Password        string `yaml:"password"`
-	QueueSize       int    `yaml:"queue_size"`
-}
-
-type LogConfig struct {
-	Level    string `yaml:"level"`
-	Rotation string `yaml:"rotation"`
-}
-
-type WebConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Password string `yaml:"password"`
-}
-
-type Config struct {
-	Server    ServerConfig             `yaml:"server"`
-	Ekb       EkbConfig                `yaml:"ekuaibao"`
-	Webhooks  map[string]WebhookEntry  `yaml:"webhooks"`
-	Sync      SyncConfig               `yaml:"sync"`
-	Logging   LogConfig                `yaml:"logging"`
-	Web       WebConfig                `yaml:"web"`
-}
-
+// LoadConfig 从指定路径加载 YAML 配置
 func LoadConfig(path string) (*Config, error) {
 	// 如果指定了非默认路径，直接用
 	if path != "config.yaml" {
@@ -90,6 +44,7 @@ func parseConfig(data []byte) (*Config, error) {
 	return &cfg, nil
 }
 
+// LoadRules 从 JSON 文件加载规则配置
 func LoadRules(path string) (*types.RulesConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
