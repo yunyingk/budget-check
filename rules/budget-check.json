@@ -41,8 +41,8 @@
       "name": "项目预算",
       "steps": [
         {
-          "description": "团建费用免项目预算校验",
-          "when": "u_费用性质 == 'ID01LPDfjPcnyn'",
+          "description": "费用性质非生产时免项目预算校验",
+          "when": "u_费用性质 != 'ID01LPDfjPcnyn'",
           "then": "pass"
         },
         {
