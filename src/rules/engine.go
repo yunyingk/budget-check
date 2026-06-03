@@ -309,14 +309,15 @@ func (e *Engine) runTarget(target *compiledTarget, unit CheckUnit, vars map[stri
 			}
 			ok, _ := out.(bool)
 			if !ok {
-				if step.then == "pass" {
-					return ""
-				}
-				continue
+				continue // 条件不满足，跳过该 step
 			}
-			if step.then == "refuse" {
+			switch step.then {
+			case "pass":
+				return "" // 条件满足 → 该 target 通过
+			case "refuse":
 				return fmt.Sprintf("%s %s", unit.Label, target.def.Name)
 			}
+			// then 为空时，继续执行 action
 		}
 
 		switch step.action {

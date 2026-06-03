@@ -1,16 +1,30 @@
 {
   "version": 1,
+  "global_steps": [
+    {
+      "when": "u_费用性质 == 'ID01LPD78hZRsr'",
+      "then": "pass",
+      "action": "费用性质免校验"
+    },
+    {
+      "when": "u_费用性质 != 'ID01LPDisfN3qv'",
+      "then": "refuse",
+      "action": "费用性质不符合预算校验要求"
+    }
+  ],
+  "split_mode": "apportion",
   "targets": [
     {
       "id": "ID01T5nPu92vH9",
       "name": "成本中心预算",
       "steps": [
         {
-          "when": "u_费用性质 not in ['ID01LPD78hZRsr','ID01LPDisfN3qv']",
+          "when": "u_费用性质 in ['ID01LPD78hZRsr','ID01LPDisfN3qv']",
           "then": "pass"
         },
-        { "action": "make_info_to_detail" },
-        { "action": "match_info_to_budget" }
+        {
+          "action": "match_info_to_budget"
+        }
       ]
     },
     {
@@ -18,11 +32,12 @@
       "name": "项目预算",
       "steps": [
         {
-          "when": "u_费用性质 != 'ID01LPDfjPcnyn'",
+          "when": "u_费用性质 == 'ID01LPDfjPcnyn'",
           "then": "pass"
         },
-        { "action": "make_info_to_detail" },
-        { "action": "match_info_to_budget" }
+        {
+          "action": "match_info_to_budget"
+        }
       ]
     }
   ]
