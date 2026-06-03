@@ -12,6 +12,7 @@ import (
 	"budget/src/budget"
 	"budget/src/consumer"
 	"budget/src/ekb"
+	"budget/src/rules"
 	"budget/src/webhook"
 )
 
@@ -60,12 +61,25 @@ func initComponents() {
 	}
 	syncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
 
-	// 获取 budget-check webhook 的 sign_key
+	// 获取 budget-check webhook 的 sign_key 和 rules
 	signKey := ""
+	rulesPath := ""
 	if wh, ok := cfg.Webhooks["budget-check"]; ok {
 		signKey = wh.SignKey
+		rulesPath = wh.Rules
 	}
-	checker = consumer.NewChecker(client, store, signKey)
+	
+	var engine *rules.Engine
+	if rulesPath != "" {
+		rulesCfg, err := LoadRules(rulesPath)
+		if err != nil {
+			log.Printf("[Init] 加载规则文件失败: %v", err)
+		} else {
+			engine = rules.NewEngine(store, rulesCfg)
+			log.Printf("[Init] 规则引擎加载成功: %s", rulesPath)
+		}
+	}
+	checker = consumer.NewChecker(client, store, signKey, engine)
 }
 
 func doSync() {

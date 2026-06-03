@@ -11,3 +11,22 @@ type Task struct {
 	EnqueuedAt time.Time
 	ClientIP   string
 }
+
+// Step 规则步骤
+type Step struct {
+	When   string `yaml:"when"`
+	Then   string `yaml:"then"`
+	Action string `yaml:"action"`
+}
+
+// RuleTarget 规则目标
+type RuleTarget struct {
+	ID    string `yaml:"id"`
+	Name  string `yaml:"name"`
+	Steps []Step `yaml:"steps"`
+}
+
+// RulesConfig 规则配置
+type RulesConfig struct {
+	Targets []RuleTarget `yaml:"targets"`
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"budget/src/types"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -26,6 +27,7 @@ type BudgetTarget struct {
 type WebhookEntry struct {
 	SignKey string         `yaml:"sign_key"`
 	Targets []BudgetTarget `yaml:"targets"`
+	Rules   string         `yaml:"rules"`
 }
 
 type SyncConfig struct {
@@ -85,4 +87,16 @@ func parseConfig(data []byte) (*Config, error) {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func LoadRules(path string) (*types.RulesConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("读取规则文件失败: %w", err)
+	}
+	var rules types.RulesConfig
+	if err := yaml.Unmarshal(data, &rules); err != nil {
+		return nil, fmt.Errorf("解析规则文件失败: %w", err)
+	}
+	return &rules, nil
 }

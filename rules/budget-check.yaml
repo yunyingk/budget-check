@@ -1,0 +1,19 @@
+# 预算校验规则配置
+# 每个 target 对应一个预算包的校验流程
+
+targets:
+  - id: "ID01T5nPu92vH9"
+    name: "成本中心预算"
+    steps:
+      - when: "expenseNature not in ['ID01LPD78hZRsr','ID01LPDisfN3qv']"
+        then: "pass"
+      - action: "make_info_to_detail"
+      - action: "match_info_to_budget"
+
+  - id: "ID01T5kHipEY7J"
+    name: "项目预算"
+    steps:
+      - when: "expenseNature != 'ID01LPDfjPcnyn'"
+        then: "pass"
+      - action: "make_info_to_detail"
+      - action: "match_info_to_budget"

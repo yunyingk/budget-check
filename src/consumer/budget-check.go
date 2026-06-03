@@ -3,6 +3,7 @@ package consumer
 import (
 	"budget/src/budget"
 	"budget/src/ekb"
+	"budget/src/rules"
 	"budget/src/types"
 	"encoding/json"
 	"fmt"
@@ -29,16 +30,18 @@ type Checker struct {
 	Client     *ekb.Client
 	Store      *budget.Store
 	SignKey    string
+	Engine     *rules.Engine
 	History    []HistoryItem
 	HistoryMax int
 	mu         sync.Mutex
 }
 
-func NewChecker(client *ekb.Client, store *budget.Store, signKey string) *Checker {
+func NewChecker(client *ekb.Client, store *budget.Store, signKey string, engine *rules.Engine) *Checker {
 	return &Checker{
 		Client:     client,
 		Store:      store,
 		SignKey:    signKey,
+		Engine:     engine,
 		HistoryMax: 50,
 	}
 }
@@ -144,40 +147,13 @@ func (c *Checker) Evaluate(task types.Task) (string, string) {
 	}
 
 	natureID, _ := form["u_费用性质"].(string)
-	natureName := ExpenseNature[natureID]
-	units := c.extractCheckUnits(form, details)
+	log.Printf("[Consumer] 单据 %s: 费用性质=%s", task.Code, natureID)
 
-	log.Printf("[Consumer] 单据 %s: 费用性质=%s(%s) 校验单元数=%d",
-		task.Code, natureID, natureName, len(units))
-	for _, u := range units {
-		log.Printf("[Consumer]   %s: 成本中心=%s 项目=%s 费用类型=%s", u.label, u.costCenter, u.project, u.feeType)
+	if c.Engine != nil {
+		return c.Engine.Evaluate(form, details)
 	}
 
-	if natureName == "" {
-		return "refuse", fmt.Sprintf("未配置的性质ID: %s", natureID)
-	}
-
-	var refusals []string
-	for _, unit := range units {
-		var action, comment string
-		switch natureName {
-		case "业务", "管理":
-			action, comment = c.checkBusinessUnit(unit)
-		case "生产":
-			action, comment = c.checkProductionUnit(unit)
-		default:
-			action = "refuse"
-			comment = fmt.Sprintf("未配置的性质ID: %s", natureID)
-		}
-		if action == "refuse" {
-			refusals = append(refusals, comment)
-		}
-	}
-
-	if len(refusals) > 0 {
-		return "refuse", joinStrings(refusals, "；")
-	}
-	return "accept", "同意"
+	return "refuse", "规则引擎未配置"
 }
 
 func (c *Checker) Process(task types.Task) {
