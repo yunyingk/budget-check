@@ -43,7 +43,6 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store) {
 		"interval_minutes": cfg.Sync.IntervalMinutes,
 		"queue_size":       cfg.Sync.QueueSize,
 		"targets":          targets,
-		"expense_nature":   consumer.ExpenseNature,
 	})
 }
 

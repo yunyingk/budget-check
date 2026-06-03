@@ -2,11 +2,15 @@ package rules
 
 import (
 	"budget/src/budget"
+	"budget/src/ekb"
 	"budget/src/types"
 	"fmt"
-	"strings"
+
+	"github.com/expr-lang/expr"
+	"github.com/expr-lang/expr/vm"
 )
 
+// CheckUnit 校验单元（一条明细或一个分摊）
 type CheckUnit struct {
 	CostCenter string
 	Project    string
@@ -14,179 +18,224 @@ type CheckUnit struct {
 	Label      string
 }
 
+// compiledStep 预编译后的 step，when 表达式在加载阶段编译为字节码
+type compiledStep struct {
+	when   *vm.Program
+	then   string
+	action string
+}
+
+// compiledTarget 预编译后的 target
+type compiledTarget struct {
+	def   types.RuleTarget
+	steps []compiledStep
+}
+
+// Engine 规则引擎
 type Engine struct {
-	store *budget.Store
-	rules *types.RulesConfig
+	store   *budget.Store
+	client  *ekb.Client
+	targets []compiledTarget
 }
 
-func NewEngine(store *budget.Store, rules *types.RulesConfig) *Engine {
-	return &Engine{
-		store: store,
-		rules: rules,
+func NewEngine(store *budget.Store, client *ekb.Client, cfg *types.RulesConfig) (*Engine, error) {
+	if cfg == nil {
+		return &Engine{store: store, client: client}, nil
 	}
+	e := &Engine{store: store, client: client}
+	for _, t := range cfg.Targets {
+		ct := compiledTarget{def: t}
+		for _, s := range t.Steps {
+			cs := compiledStep{then: s.Then, action: s.Action}
+			if s.When != "" {
+				prog, err := expr.Compile(s.When, expr.AllowUndefinedVariables())
+				if err != nil {
+					return nil, fmt.Errorf("target %s 表达式编译失败 (%q): %w", t.Name, s.When, err)
+				}
+				cs.when = prog
+			}
+			ct.steps = append(ct.steps, cs)
+		}
+		e.targets = append(e.targets, ct)
+	}
+	return e, nil
 }
 
+// Evaluate 对单据执行规则校验
 func (e *Engine) Evaluate(form map[string]interface{}, details []map[string]interface{}) (string, string) {
+	if len(e.targets) == 0 {
+		return "refuse", "未配置校验规则"
+	}
+
 	units := extractCheckUnits(form, details)
-	
+	if len(units) == 0 {
+		return "refuse", "单据无可校验的明细"
+	}
+
+	vars := buildVars(form, units)
+
 	var refusals []string
 	for _, unit := range units {
-		action, comment := e.evaluateUnit(unit, form)
-		if action == "refuse" {
-			refusals = append(refusals, comment)
+		for _, t := range e.targets {
+			msg := e.runTarget(&t, unit, vars)
+			if msg != "" {
+				refusals = append(refusals, msg)
+			}
 		}
 	}
-	
+
 	if len(refusals) > 0 {
 		return "refuse", joinStrings(refusals, "；")
 	}
 	return "accept", "同意"
 }
 
-func (e *Engine) evaluateUnit(unit CheckUnit, form map[string]interface{}) (string, string) {
-	for _, target := range e.rules.Targets {
-		action, comment := e.evaluateTarget(target, unit, form)
-		if action == "refuse" {
-			return action, comment
-		}
+// buildVars 把 form 字段全部摊平进 vars，rule 直接按字段名引用
+func buildVars(form map[string]interface{}, units []CheckUnit) map[string]interface{} {
+	out := make(map[string]interface{}, len(form))
+	for k, v := range form {
+		out[k] = v
 	}
-	return "accept", "同意"
+	if len(units) > 0 {
+		out["E_system_costcenter"] = units[0].CostCenter
+		out["项目"] = units[0].Project
+	}
+	return out
 }
 
-func (e *Engine) evaluateTarget(target types.RuleTarget, unit CheckUnit, form map[string]interface{}) (string, string) {
-	vars := map[string]interface{}{
-		"expenseNature": form["u_费用性质"],
-		"costCenter":    unit.CostCenter,
-		"project":       unit.Project,
-		"feeType":       unit.FeeType,
+// runTarget 跑一个 target 的全部 step
+func (e *Engine) runTarget(target *compiledTarget, unit CheckUnit, vars map[string]interface{}) string {
+	varsLocal := make(map[string]interface{}, len(vars)+3)
+	for k, v := range vars {
+		varsLocal[k] = v
 	}
-	
-	for _, step := range target.Steps {
-		if step.When != "" {
-			result := evaluateExpression(step.When, vars)
-			if !result {
-				if step.Then == "pass" {
-					return "accept", ""
+	if unit.CostCenter != "" {
+		varsLocal["E_system_costcenter"] = unit.CostCenter
+	}
+	if unit.Project != "" {
+		varsLocal["项目"] = unit.Project
+	}
+	if unit.FeeType != "" {
+		varsLocal["u_费用类型档案"] = unit.FeeType
+	}
+
+	var tree *budget.Tree
+
+	for _, step := range target.steps {
+		if step.when != nil {
+			out, err := expr.Run(step.when, varsLocal)
+			if err != nil {
+				return fmt.Sprintf("%s 规则执行失败: %s", target.def.Name, err)
+			}
+			ok, _ := out.(bool)
+			if !ok {
+				if step.then == "pass" {
+					return ""
 				}
 				continue
 			}
-		}
-		
-		if step.Action == "make_info_to_detail" {
-			continue
-		}
-		
-		if step.Action == "match_info_to_budget" {
-			tree := e.store.GetTreeByID(target.ID)
-			if tree == nil {
-				return "refuse", fmt.Sprintf("%s 预算包未同步", target.Name)
-			}
-			
-			matched, comment := matchToBudget(tree, unit)
-			if !matched {
-				return "refuse", comment
+			if step.then == "refuse" {
+				return fmt.Sprintf("%s %s", unit.Label, target.def.Name)
 			}
 		}
-	}
-	
-	return "accept", ""
-}
 
-func matchToBudget(tree *budget.Tree, unit CheckUnit) (bool, string) {
-	for _, rootNode := range tree.Root {
-		if rootNode.DimType == "costCenter" || rootNode.DimType == "project" {
-			fieldValue := getFieldValueByDimType(unit, rootNode.DimType)
-			if fieldValue == "" {
-				return false, fmt.Sprintf("缺少字段 %s", rootNode.DimType)
-			}
-			
-			if _, found := tree.Root[fieldValue]; !found {
-				return false, fmt.Sprintf("%s 不在预算包内", fieldValue)
-			}
-			
-			for _, childNode := range rootNode.Children {
-				if childNode.DimType == "feeType" {
-					if unit.FeeType == "" {
-						continue
-					}
-					if _, found := childNode.Children[unit.FeeType]; !found {
-						return false, fmt.Sprintf("费用类型 %s 不在预算包内", unit.FeeType)
-					}
+		switch step.action {
+		case "make_info_to_detail":
+			// 暂为占位动作
+		case "match_info_to_budget":
+			if tree == nil {
+				tree = e.store.GetTreeByID(target.def.ID)
+				if tree == nil {
+					return fmt.Sprintf("%s 预算包 %s 未同步", unit.Label, target.def.Name)
 				}
 			}
+			if msg := matchToBudget(e.client, tree, unit); msg != "" {
+				return fmt.Sprintf("%s %s", unit.Label, msg)
+			}
 		}
-	}
-	return true, ""
-}
-
-func getFieldValueByDimType(unit CheckUnit, dimType string) string {
-	switch dimType {
-	case "costCenter":
-		return unit.CostCenter
-	case "project":
-		return unit.Project
-	case "feeType":
-		return unit.FeeType
 	}
 	return ""
 }
 
-func evaluateExpression(expr string, vars map[string]interface{}) bool {
-	expr = strings.TrimSpace(expr)
-	
-	if strings.Contains(expr, "not in") {
-		parts := strings.SplitN(expr, "not in", 2)
-		if len(parts) == 2 {
-			field := strings.TrimSpace(parts[0])
-			listStr := strings.TrimSpace(parts[1])
-			listStr = strings.Trim(listStr, "[]")
-			listStr = strings.ReplaceAll(listStr, "'", "")
-			items := strings.Split(listStr, ",")
-			
-			value, ok := vars[field]
+// matchToBudget 把单据字段匹配到预算树
+//
+// 树的 root 维度类型决定匹配路径：rootNode.DimType == "costCenter" 时
+// 走 costCenter → feeType 路径；"project" 时走 project → (children) → costCenter
+// → feeType 路径。匹配时沿父级链向上查找（FindAncestorInTree）。
+func matchToBudget(client *ekb.Client, tree *budget.Tree, unit CheckUnit) string {
+	if len(tree.Root) == 0 {
+		return "预算包为空"
+	}
+
+	rootSet := make(map[string]bool, len(tree.Root))
+	for k := range tree.Root {
+		rootSet[k] = true
+	}
+
+	var rootNode *budget.Node
+	var rootFieldName string
+
+	for _, n := range tree.Root {
+		switch n.DimType {
+		case "costCenter":
+			if unit.CostCenter == "" {
+				return "缺少成本中心"
+			}
+			id, ok := client.FindAncestorInTree(unit.CostCenter, rootSet, 5)
 			if !ok {
-				return false
+				return fmt.Sprintf("成本中心 %s 不在预算包内", unit.CostCenter)
 			}
-			valueStr, ok := value.(string)
+			rootNode = tree.Root[id]
+			rootFieldName = "成本中心"
+		case "project":
+			if unit.Project == "" {
+				return "缺少项目"
+			}
+			id, ok := client.FindAncestorInTree(unit.Project, rootSet, 5)
 			if !ok {
-				return false
+				return fmt.Sprintf("项目 %s 不在预算包内", unit.Project)
 			}
-			
-			for _, item := range items {
-				if strings.TrimSpace(item) == valueStr {
-					return false
-				}
-			}
-			return true
+			rootNode = tree.Root[id]
+			rootFieldName = "项目"
+		default:
+			continue
+		}
+		break
+	}
+
+	if rootNode == nil {
+		return "预算包根维度类型未知"
+	}
+
+	if unit.FeeType == "" {
+		return ""
+	}
+
+	feeSet := collectFeeTypes(rootNode)
+	if len(feeSet) == 0 {
+		return ""
+	}
+	if _, ok := client.FindAncestorInTree(unit.FeeType, feeSet, 5); !ok {
+		return fmt.Sprintf("费用类型 %s 不在%s预算包内", unit.FeeType, rootFieldName)
+	}
+	return ""
+}
+
+// collectFeeTypes 收集根节点下所有费用类型（含子节点）
+func collectFeeTypes(root *budget.Node) map[string]bool {
+	out := make(map[string]bool)
+	for _, child := range root.Children {
+		for k := range child.Children {
+			out[k] = true
 		}
 	}
-	
-	if strings.Contains(expr, "!=") {
-		parts := strings.SplitN(expr, "!=", 2)
-		if len(parts) == 2 {
-			field := strings.TrimSpace(parts[0])
-			expected := strings.TrimSpace(parts[1])
-			expected = strings.Trim(expected, "'")
-			
-			value, ok := vars[field]
-			if !ok {
-				return true
-			}
-			valueStr, ok := value.(string)
-			if !ok {
-				return true
-			}
-			return valueStr != expected
-		}
-	}
-	
-	return false
+	return out
 }
 
 func extractCheckUnits(form map[string]interface{}, details []map[string]interface{}) []CheckUnit {
 	formCostCenter, _ := form["E_system_costcenter"].(string)
 	formProject, _ := form["项目"].(string)
-	
+
 	if len(details) == 0 {
 		return []CheckUnit{{
 			CostCenter: formCostCenter,
@@ -195,7 +244,7 @@ func extractCheckUnits(form map[string]interface{}, details []map[string]interfa
 			Label:      "单据",
 		}}
 	}
-	
+
 	var units []CheckUnit
 	for i, detail := range details {
 		feeTypeForm, _ := detail["feeTypeForm"].(map[string]interface{})
@@ -203,17 +252,17 @@ func extractCheckUnits(form map[string]interface{}, details []map[string]interfa
 		if feeTypeForm != nil {
 			feeType, _ = feeTypeForm["u_费用类型档案"].(string)
 		}
-		
+
 		var rawApportions []interface{}
 		if feeTypeForm != nil {
 			rawApportions, _ = feeTypeForm["apportions"].([]interface{})
 		}
-		
+
 		if len(rawApportions) > 0 {
 			for j, a := range rawApportions {
 				apportion, _ := a.(map[string]interface{})
 				apportionForm, _ := apportion["apportionForm"].(map[string]interface{})
-				
+
 				cc := formCostCenter
 				proj := formProject
 				if apportionForm != nil {
@@ -224,7 +273,7 @@ func extractCheckUnits(form map[string]interface{}, details []map[string]interfa
 						proj = v
 					}
 				}
-				
+
 				units = append(units, CheckUnit{
 					CostCenter: cc,
 					Project:    proj,
@@ -241,17 +290,17 @@ func extractCheckUnits(form map[string]interface{}, details []map[string]interfa
 			})
 		}
 	}
-	
+
 	return units
 }
 
-func joinStrings(strs []string, sep string) string {
-	result := ""
-	for i, s := range strs {
-		if i > 0 {
-			result += sep
-		}
-		result += s
+func joinStrings(parts []string, sep string) string {
+	if len(parts) == 0 {
+		return ""
 	}
-	return result
+	out := parts[0]
+	for _, s := range parts[1:] {
+		out += sep + s
+	}
+	return out
 }

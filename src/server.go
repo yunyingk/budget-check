@@ -75,8 +75,12 @@ func initComponents() {
 		if err != nil {
 			log.Printf("[Init] 加载规则文件失败: %v", err)
 		} else {
-			engine = rules.NewEngine(store, rulesCfg)
-			log.Printf("[Init] 规则引擎加载成功: %s", rulesPath)
+			engine, err = rules.NewEngine(store, client, rulesCfg)
+			if err != nil {
+				log.Printf("[Init] 规则编译失败: %v", err)
+			} else {
+				log.Printf("[Init] 规则引擎加载成功: %s", rulesPath)
+			}
 		}
 	}
 	checker = consumer.NewChecker(client, store, signKey, engine)

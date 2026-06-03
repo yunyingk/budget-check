@@ -14,19 +14,20 @@ type Task struct {
 
 // Step 规则步骤
 type Step struct {
-	When   string `yaml:"when"`
-	Then   string `yaml:"then"`
-	Action string `yaml:"action"`
+	When   string `json:"when,omitempty"`
+	Then   string `json:"then,omitempty"`
+	Action string `json:"action,omitempty"`
 }
 
-// RuleTarget 规则目标
+// RuleTarget 规则目标，对应一个预算包
 type RuleTarget struct {
-	ID    string `yaml:"id"`
-	Name  string `yaml:"name"`
-	Steps []Step `yaml:"steps"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Steps []Step `json:"steps"`
 }
 
 // RulesConfig 规则配置
 type RulesConfig struct {
-	Targets []RuleTarget `yaml:"targets"`
+	Version int          `json:"version"`
+	Targets []RuleTarget `json:"targets"`
 }

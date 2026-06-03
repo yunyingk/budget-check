@@ -2,6 +2,7 @@ package main
 
 import (
 	"budget/src/types"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,7 +96,7 @@ func LoadRules(path string) (*types.RulesConfig, error) {
 		return nil, fmt.Errorf("读取规则文件失败: %w", err)
 	}
 	var rules types.RulesConfig
-	if err := yaml.Unmarshal(data, &rules); err != nil {
+	if err := json.Unmarshal(data, &rules); err != nil {
 		return nil, fmt.Errorf("解析规则文件失败: %w", err)
 	}
 	return &rules, nil

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "targets": [
+    {
+      "id": "ID01T5nPu92vH9",
+      "name": "成本中心预算",
+      "steps": [
+        {
+          "when": "u_费用性质 not in ['ID01LPD78hZRsr','ID01LPDisfN3qv']",
+          "then": "pass"
+        },
+        { "action": "make_info_to_detail" },
+        { "action": "match_info_to_budget" }
+      ]
+    },
+    {
+      "id": "ID01T5kHipEY7J",
+      "name": "项目预算",
+      "steps": [
+        {
+          "when": "u_费用性质 != 'ID01LPDfjPcnyn'",
+          "then": "pass"
+        },
+        { "action": "make_info_to_detail" },
+        { "action": "match_info_to_budget" }
+      ]
+    }
+  ]
+}
