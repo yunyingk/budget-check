@@ -5,6 +5,7 @@ import (
 	"budget/src/config"
 	"budget/src/consumer"
 	"budget/src/queue"
+	"budget/src/types"
 	"embed"
 	"log"
 	"net/http"
@@ -23,7 +24,8 @@ type Deps struct {
 	Queue      *queue.Queue
 	Syncing    func() bool
 	Version    string
-	OnSync     func() // 手动同步回调
+	OnSync     func()                        // 手动同步回调
+	RulesCfgs  map[string]*types.RulesConfig // webhookKey → RulesConfig
 }
 
 // Register 向 mux 注册所有路由
@@ -54,6 +56,17 @@ func Register(mux *http.ServeMux, deps Deps) {
 		mux.HandleFunc("/api/history", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, deps.Checker)
 		}))
+
+		// 规则配置 API
+		mux.HandleFunc("/api/rules/", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
+			handleRules(w, r, deps.RulesCfgs)
+		}))
+
+		// Webhooks 配置 API
+		mux.HandleFunc("/api/webhooks", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
+			handleWebhooks(w, r, cfg)
+		}))
+
 		log.Printf("[Web] 管理页面已启用: http://localhost:%d", cfg.Server.Port)
 	} else {
 		mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {

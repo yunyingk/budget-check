@@ -29,9 +29,8 @@ type compiledStep struct {
 
 // compiledTarget 预编译后的 target
 type compiledTarget struct {
-	def    types.RuleTarget
-	steps  []compiledStep
-	dimMap map[string]string // dimType -> fieldName
+	def   types.RuleTarget
+	steps []compiledStep
 }
 
 // Engine 规则引擎
@@ -41,22 +40,13 @@ type Engine struct {
 	targets []compiledTarget
 }
 
-func NewEngine(store *budget.Store, client *ekb.Client, cfg *types.RulesConfig, dimMap map[string]string) (*Engine, error) {
+func NewEngine(store *budget.Store, client *ekb.Client, cfg *types.RulesConfig) (*Engine, error) {
 	e := &Engine{store: store, client: client}
 	if cfg == nil {
 		return e, nil
 	}
-	// dimension_map：dimType -> 表单字段名，外部传入覆盖默认
-	merged := map[string]string{
-		"costCenter": "E_system_costcenter",
-		"project":    "项目",
-		"feeType":    "u_费用类型档案",
-	}
-	for k, v := range dimMap {
-		merged[k] = v
-	}
 	for _, t := range cfg.Targets {
-		ct := compiledTarget{def: t, dimMap: merged}
+		ct := compiledTarget{def: t}
 		for _, s := range t.Steps {
 			cs, err := compileStep(s, t.Name)
 			if err != nil {
@@ -260,7 +250,8 @@ func splitApportion(units []CheckUnit) []CheckUnit {
 	return result
 }
 
-// matchToBudget 把单据字段匹配到预算树
+// matchToBudget 把单据字段逐层匹配到预算树
+// 每层用 DimId 作为字段名取值，PROJECT 类型向上找祖先，其他类型精确匹配
 func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 	tree := e.store.GetTreeByID(target.def.ID)
 	if tree == nil {
@@ -270,63 +261,42 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		return "预算包为空"
 	}
 
-	rootSet := make(map[string]bool, len(tree.Root))
-	for k := range tree.Root {
-		rootSet[k] = true
-	}
-
-	var rootNode *budget.Node
-	var rootFieldName string
-
-	for _, n := range tree.Root {
-		fieldName, ok := target.dimMap[n.DimType]
-		if !ok {
-			continue
+	currentNodes := tree.Root
+	for len(currentNodes) > 0 {
+		var first *budget.Node
+		for _, n := range currentNodes {
+			first = n
+			break
 		}
-		fieldValue, _ := unit.Fields[fieldName].(string)
+
+		fieldValue, _ := unit.Fields[first.DimId].(string)
 		if fieldValue == "" {
-			return fmt.Sprintf("缺少%s", fieldName)
+			return fmt.Sprintf("缺少%s", first.DimId)
 		}
-		id, found := e.client.FindAncestorInTree(fieldValue, rootSet, 5)
-		if !found {
-			return fmt.Sprintf("%s %s 不在预算包内", fieldName, fieldValue)
+
+		set := make(map[string]bool, len(currentNodes))
+		for code := range currentNodes {
+			set[code] = true
 		}
-		rootNode = tree.Root[id]
-		rootFieldName = fieldName
-		break
-	}
 
-	if rootNode == nil {
-		return "预算包根维度未配置"
-	}
+		var matched *budget.Node
+		if first.DimType == "PROJECT" {
+			id, found := e.client.FindAncestorInTree(fieldValue, set, 5)
+			if !found {
+				return fmt.Sprintf("%s %s 不在预算包内", first.DimId, fieldValue)
+			}
+			matched = currentNodes[id]
+		} else {
+			if node, ok := currentNodes[fieldValue]; ok {
+				matched = node
+			} else {
+				return fmt.Sprintf("%s %s 不在预算包内", first.DimId, fieldValue)
+			}
+		}
 
-	feeTypeField, ok := target.dimMap["feeType"]
-	if !ok {
-		return ""
-	}
-	feeType, _ := unit.Fields[feeTypeField].(string)
-	if feeType == "" {
-		return ""
-	}
-
-	feeSet := collectFeeTypes(rootNode)
-	if len(feeSet) == 0 {
-		return ""
-	}
-	if _, found := e.client.FindAncestorInTree(feeType, feeSet, 5); !found {
-		return fmt.Sprintf("费用类型 %s 不在%s预算包内", feeType, rootFieldName)
+		currentNodes = matched.Children
 	}
 	return ""
-}
-
-func collectFeeTypes(root *budget.Node) map[string]bool {
-	out := make(map[string]bool)
-	for _, child := range root.Children {
-		for k := range child.Children {
-			out[k] = true
-		}
-	}
-	return out
 }
 
 func shallowCopy(m map[string]interface{}) map[string]interface{} {

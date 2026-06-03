@@ -14,8 +14,8 @@ type EkbConfig struct {
 
 // BudgetTarget 预算包目标（配置文件中引用）
 type BudgetTarget struct {
-	ID   string `yaml:"id"`
-	Name string `yaml:"name"`
+	ID   string `yaml:"id" json:"id"`
+	Name string `yaml:"name" json:"name"`
 }
 
 // WebhookEntry 单个 webhook 配置
@@ -53,5 +53,4 @@ type Config struct {
 	Sync         SyncConfig              `yaml:"sync"`
 	Logging      LogConfig               `yaml:"logging"`
 	Web          WebConfig               `yaml:"web"`
-	DimensionMap map[string]string       `yaml:"dimension_map,omitempty"` // dimType -> fieldName
 }

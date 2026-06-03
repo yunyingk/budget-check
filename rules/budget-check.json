@@ -2,7 +2,7 @@
   "version": 1,
   "targets": [
     {
-      "id": "ID01T5nPu92vH9",
+      "id": "ID01TsPQJFK1RR",
       "name": "成本中心预算",
       "steps": [
         {
@@ -15,6 +15,24 @@
         },
         {
           "description": "匹配成本中心预算包",
+          "action": "match_info_to_budget"
+        }
+      ]
+    },
+    {
+      "id": "ID01PIbqQYosvt",
+      "name": "板块预算",
+      "steps": [
+        {
+          "description": "按费用明细拆分",
+          "action": "split_detail"
+        },
+        {
+          "description": "启动分摊",
+          "action": "split_apportion"
+        },
+        {
+          "description": "匹配板块预算包",
           "action": "match_info_to_budget"
         }
       ]

@@ -19,7 +19,7 @@ func TestNewEngine_Compiles(t *testing.T) {
 			}},
 		},
 	}
-	if _, err := NewEngine(nil, nil, cfg, nil); err != nil {
+	if _, err := NewEngine(nil, nil, cfg); err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 }
@@ -30,13 +30,13 @@ func TestNewEngine_BadExpr(t *testing.T) {
 			ID: "T1", Name: "坏规则", Steps: []types.Step{{When: `this is not valid`}},
 		}},
 	}
-	if _, err := NewEngine(nil, nil, cfg, nil); err == nil {
+	if _, err := NewEngine(nil, nil, cfg); err == nil {
 		t.Fatal("expected compile error")
 	}
 }
 
 func TestNewEngine_NilConfig(t *testing.T) {
-	e, err := NewEngine(nil, nil, nil, nil)
+	e, err := NewEngine(nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestEvaluate_StepPass(t *testing.T) {
 			},
 		}},
 	}
-	e, _ := NewEngine(nil, nil, cfg, nil)
+	e, _ := NewEngine(nil, nil, cfg)
 	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"})
 	if action != "accept" {
 		t.Errorf("expected accept, got %s/%s", action, comment)
@@ -70,7 +70,7 @@ func TestEvaluate_StepRefuse(t *testing.T) {
 			},
 		}},
 	}
-	e, _ := NewEngine(nil, nil, cfg, nil)
+	e, _ := NewEngine(nil, nil, cfg)
 	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"})
 	if action != "refuse" {
 		t.Errorf("expected refuse, got %s/%s", action, comment)
@@ -86,7 +86,7 @@ func TestEvaluate_StepRefuseWithReason(t *testing.T) {
 			},
 		}},
 	}
-	e, _ := NewEngine(nil, nil, cfg, nil)
+	e, _ := NewEngine(nil, nil, cfg)
 	_, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "X"})
 	if comment != "单据 不符合预算要求" {
 		t.Errorf("expected reason comment, got %s", comment)
@@ -102,7 +102,7 @@ func TestEvaluate_WhenFalseSkips(t *testing.T) {
 			},
 		}},
 	}
-	e, _ := NewEngine(nil, nil, cfg, nil)
+	e, _ := NewEngine(nil, nil, cfg)
 	action, comment := e.Evaluate(map[string]interface{}{"u_费用性质": "Z"})
 	if action != "accept" {
 		t.Errorf("expected accept (when=false skip), got %s/%s", action, comment)
@@ -119,7 +119,7 @@ func TestEvaluate_SplitDetail(t *testing.T) {
 			},
 		}},
 	}
-	e, _ := NewEngine(nil, nil, cfg, nil)
+	e, _ := NewEngine(nil, nil, cfg)
 	form := map[string]interface{}{
 		"项目": "PX",
 		"details": []interface{}{
@@ -141,7 +141,7 @@ func TestEvaluate_TwoTargets(t *testing.T) {
 		},
 	}
 	store := budget.NewStore()
-	e, _ := NewEngine(store, nil, cfg, nil)
+	e, _ := NewEngine(store, nil, cfg)
 	action, comment := e.Evaluate(map[string]interface{}{})
 	if action != "refuse" {
 		t.Errorf("expected refuse, got %s/%s", action, comment)

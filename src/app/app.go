@@ -8,6 +8,7 @@ import (
 	"budget/src/queue"
 	rotatelog "budget/src/log"
 	"budget/src/rules"
+	"budget/src/types"
 	"budget/src/web"
 	"fmt"
 	"log"
@@ -19,17 +20,18 @@ import (
 
 // App 应用程序容器，持有所有运行时状态
 type App struct {
-	Config  *config.Config
-	Logger  *rotatelog.RotatingLogger
-	Queue   *queue.Queue
-	Store   *budget.Store
-	StoreMu sync.RWMutex
-	Client  *ekb.Client
-	Syncing atomic.Bool
-	SyncCfg budget.SyncConfig
-	Checker *consumer.Checker
-	Engines map[string]*rules.Engine // webhookKey → Engine
-	Version string
+	Config    *config.Config
+	Logger    *rotatelog.RotatingLogger
+	Queue     *queue.Queue
+	Store     *budget.Store
+	StoreMu   sync.RWMutex
+	Client    *ekb.Client
+	Syncing   atomic.Bool
+	SyncCfg   budget.SyncConfig
+	Checker   *consumer.Checker
+	Engines   map[string]*rules.Engine        // webhookKey → Engine
+	RulesCfgs map[string]*types.RulesConfig   // webhookKey → RulesConfig（前端展示用）
+	Version   string
 }
 
 // New 创建 App 实例（不初始化组件）
@@ -74,6 +76,7 @@ func (a *App) Init() error {
 	// 收集所有 webhook 的 sign_key，并为每个 webhook 加载独立规则引擎
 	signKeys := make(map[string]string)
 	a.Engines = make(map[string]*rules.Engine)
+	a.RulesCfgs = make(map[string]*types.RulesConfig)
 
 	for key, wh := range a.Config.Webhooks {
 		if wh.SignKey != "" {
@@ -90,12 +93,13 @@ func (a *App) Init() error {
 			log.Printf("[Init] webhook=%s 规则文件不存在或加载失败: %v", key, err)
 			continue
 		}
-		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg, a.Config.DimensionMap)
+		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg)
 		if err != nil {
 			log.Printf("[Init] webhook=%s 规则编译失败: %v", key, err)
 			continue
 		}
 		a.Engines[key] = engine
+		a.RulesCfgs[key] = rulesCfg
 		log.Printf("[Init] webhook=%s 规则引擎加载成功: %s", key, rulesPath)
 	}
 
@@ -156,6 +160,7 @@ func (a *App) Run() error {
 		Syncing:    a.Syncing.Load,
 		Version:    a.Version,
 		OnSync:     a.Sync,
+		RulesCfgs:  a.RulesCfgs,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", a.Config.Server.Port)

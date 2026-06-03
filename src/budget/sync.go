@@ -43,6 +43,12 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 		log.Printf("[Sync] 获取预算列表失败: %v", err)
 		return
 	}
+	log.Printf("[Sync] 全量预算包共 %d 个:", len(budgets))
+	for _, b := range budgets {
+		bName, _ := b["name"].(string)
+		bID, _ := b["id"].(string)
+		log.Printf("    [%s] %s", bID, bName)
+	}
 
 	for _, b := range budgets {
 		bName, _ := b["name"].(string)
@@ -79,6 +85,7 @@ type rawNode struct {
 	nodeName string
 	dimCode  string
 	dimType  string
+	dimId    string // dimensionId = 表单字段名
 	isLeaf   bool
 }
 
@@ -122,6 +129,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		node := &Node{
 			DimCode:  rn.dimCode,
 			DimType:  rn.dimType,
+			DimId:    rn.dimId,
 			NodeName: rn.nodeName,
 			NodeID:   rn.nodeID,
 			IsLeaf:   rn.isLeaf,
@@ -365,12 +373,14 @@ func parseRawNodes(nodes []interface{}) ([]rawNode, []string) {
 			content, _ := c.(map[string]interface{})
 			dimCode, _ := content["contentId"].(string)
 			dimType, _ := content["dimensionType"].(string)
+			dimId, _ := content["dimensionId"].(string)
 			if dimCode != "" {
 				result = append(result, rawNode{
 					nodeID:   nID,
 					nodeName: nName,
 					dimCode:  dimCode,
 					dimType:  dimType,
+					dimId:    dimId,
 					isLeaf:   isLeaf,
 				})
 			}
