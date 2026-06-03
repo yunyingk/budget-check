@@ -15,10 +15,11 @@ type Task struct {
 
 // Step 规则步骤
 type Step struct {
-	When   string `json:"when,omitempty"`
-	Then   string `json:"then,omitempty"`
-	Action string `json:"action,omitempty"`
-	Reason string `json:"reason,omitempty"` // 拒绝原因说明（then=refuse 时返回）
+	When        string `json:"when,omitempty"`
+	Then        string `json:"then,omitempty"`
+	Action      string `json:"action,omitempty"`
+	Reason      string `json:"reason,omitempty"`      // 拒绝原因说明（then=refuse 时返回）
+	Description string `json:"description,omitempty"` // 步骤描述，仅用于配置注释
 }
 
 // RuleTarget 规则目标，对应一个预算包，有自己的完整工作流

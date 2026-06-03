@@ -19,10 +19,11 @@ type CheckUnit struct {
 
 // compiledStep 预编译后的 step，when 表达式在加载阶段编译为字节码
 type compiledStep struct {
-	when   *vm.Program
-	then   string
-	action string
-	reason string
+	when        *vm.Program
+	then        string
+	action      string
+	reason      string
+	description string
 }
 
 // compiledTarget 预编译后的 target
@@ -68,7 +69,7 @@ func NewEngine(store *budget.Store, client *ekb.Client, cfg *types.RulesConfig, 
 }
 
 func compileStep(s types.Step, targetName string) (compiledStep, error) {
-	cs := compiledStep{then: s.Then, action: s.Action, reason: s.Reason}
+	cs := compiledStep{then: s.Then, action: s.Action, reason: s.Reason, description: s.Description}
 	if s.When != "" {
 		prog, err := expr.Compile(s.When, expr.AllowUndefinedVariables())
 		if err != nil {

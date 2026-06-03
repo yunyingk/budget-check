@@ -6,26 +6,32 @@
       "name": "成本中心预算",
       "steps": [
         {
+          "description": "项目费用免成本中心预算校验",
           "when": "u_费用性质 == 'ID01LPD78hZRsr'",
           "then": "pass",
           "reason": "费用性质免校验"
         },
         {
+          "description": "非日常费用直接拒绝",
           "when": "u_费用性质 != 'ID01LPDisfN3qv'",
           "then": "refuse",
           "reason": "费用性质不符合预算校验要求"
         },
         {
+          "description": "按费用明细拆分",
           "action": "split_detail"
         },
         {
+          "description": "按部门/项目分摊拆分",
           "action": "split_apportion"
         },
         {
+          "description": "日常费用直接通过",
           "when": "u_费用性质 in ['ID01LPD78hZRsr','ID01LPDisfN3qv']",
           "then": "pass"
         },
         {
+          "description": "匹配成本中心预算包",
           "action": "match_info_to_budget"
         }
       ]
@@ -35,16 +41,20 @@
       "name": "项目预算",
       "steps": [
         {
+          "description": "团建费用免项目预算校验",
           "when": "u_费用性质 == 'ID01LPDfjPcnyn'",
           "then": "pass"
         },
         {
+          "description": "按费用明细拆分",
           "action": "split_detail"
         },
         {
+          "description": "按部门/项目分摊拆分",
           "action": "split_apportion"
         },
         {
+          "description": "匹配项目预算包",
           "action": "match_info_to_budget"
         }
       ]
