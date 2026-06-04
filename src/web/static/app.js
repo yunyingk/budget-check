@@ -21,6 +21,12 @@ const app = createApp({
     const syncMsg = ref('')
     const metrics = ref({})
 
+    // 编辑器状态
+    const editMode = ref(null)      // 当前编辑的 webhook key
+    const editDraft = ref(null)     // 编辑中的规则副本
+    const editMsg = ref('')         // 编辑器反馈消息
+    const editSaving = ref(false)   // 保存中
+
     let refreshTimer = null
 
     function checkAuth(r) {
@@ -126,6 +132,74 @@ const app = createApp({
       return new Date(ts * 1000).toLocaleString()
     }
 
+    // ========== 规则编辑器 ==========
+
+    function startEdit(key) {
+      editMode.value = key
+      editDraft.value = JSON.parse(JSON.stringify(rules.value[key]))
+      editMsg.value = ''
+    }
+
+    function cancelEdit() {
+      editMode.value = null
+      editDraft.value = null
+      editMsg.value = ''
+    }
+
+    function addTarget() {
+      editDraft.value.targets.push({
+        id: '',
+        name: '新预算包',
+        steps: [{ description: '按费用明细拆分', action: 'split_detail' }]
+      })
+    }
+
+    function removeTarget(ti) {
+      editDraft.value.targets.splice(ti, 1)
+    }
+
+    function addStep(ti) {
+      editDraft.value.targets[ti].steps.push({ description: '' })
+    }
+
+    function removeStep(ti, si) {
+      editDraft.value.targets[ti].steps.splice(si, 1)
+    }
+
+    function moveStep(ti, si, dir) {
+      const steps = editDraft.value.targets[ti].steps
+      const ni = si + dir
+      if (ni < 0 || ni >= steps.length) return
+      const tmp = steps[si]
+      steps[si] = steps[ni]
+      steps[ni] = tmp
+    }
+
+    async function saveRules(key) {
+      editSaving.value = true
+      editMsg.value = ''
+      try {
+        const r = await fetch('/api/rules/' + key, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(editDraft.value)
+        })
+        if (!checkAuth(r)) return
+        const d = await r.json()
+        if (r.ok) {
+          rules.value[key] = JSON.parse(JSON.stringify(editDraft.value))
+          editMsg.value = '✓ 保存成功，规则引擎已热重载'
+          setTimeout(() => { editMsg.value = '' }, 3000)
+        } else {
+          editMsg.value = '✗ ' + (d.error || '保存失败')
+        }
+      } catch (e) {
+        editMsg.value = '✗ 网络错误: ' + e
+      } finally {
+        editSaving.value = false
+      }
+    }
+
     onMounted(() => {
       refresh()
       refreshTimer = setInterval(refresh, 3000)
@@ -155,7 +229,20 @@ const app = createApp({
       metrics,
       switchPage,
       doSync,
-      formatTimestamp
+      formatTimestamp,
+      // 编辑器
+      editMode,
+      editDraft,
+      editMsg,
+      editSaving,
+      startEdit,
+      cancelEdit,
+      addTarget,
+      removeTarget,
+      addStep,
+      removeStep,
+      moveStep,
+      saveRules
     }
   }
 })

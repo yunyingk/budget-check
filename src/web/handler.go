@@ -112,6 +112,39 @@ func handleRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*t
 	writeJSON(w, 200, cfg)
 }
 
+// handleSaveRules 保存规则配置 PUT /api/rules/{webhookKey}
+func handleSaveRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*types.RulesConfig, saveFunc func(string, *types.RulesConfig) error) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, 405, map[string]string{"error": "方法不允许"})
+		return
+	}
+	prefix := "/api/rules/"
+	key := r.URL.Path[len(prefix):]
+	if key == "" {
+		writeJSON(w, 400, map[string]string{"error": "缺少 webhook key"})
+		return
+	}
+	if _, ok := rulesCfgs[key]; !ok {
+		writeJSON(w, 404, map[string]string{"error": "规则配置未找到"})
+		return
+	}
+
+	var cfg types.RulesConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "JSON 解析失败: " + err.Error()})
+		return
+	}
+
+	if err := saveFunc(key, &cfg); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// 更新内存中的配置
+	rulesCfgs[key] = &cfg
+	writeJSON(w, 200, map[string]string{"status": "ok"})
+}
+
 // handleWebhooks 返回 webhook 配置列表（sign_key 脱敏）
 func handleWebhooks(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
 	var list []map[string]interface{}

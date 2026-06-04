@@ -32,6 +32,7 @@ type App struct {
 	Checker       *consumer.Checker
 	Engines       map[string]*rules.Engine        // webhookKey → Engine
 	RulesCfgs     map[string]*types.RulesConfig   // webhookKey → RulesConfig（前端展示用）
+	RulesPaths    map[string]string               // webhookKey → 规则文件路径
 	Version       string
 	StartTime     time.Time                       // 服务启动时间
 	LastSyncDuration atomic.Int64                 // 上次同步耗时（纳秒）
@@ -81,6 +82,7 @@ func (a *App) Init() error {
 	signKeys := make(map[string]string)
 	a.Engines = make(map[string]*rules.Engine)
 	a.RulesCfgs = make(map[string]*types.RulesConfig)
+	a.RulesPaths = make(map[string]string)
 
 	for key, wh := range a.Config.Webhooks {
 		if wh.SignKey != "" {
@@ -104,6 +106,7 @@ func (a *App) Init() error {
 		}
 		a.Engines[key] = engine
 		a.RulesCfgs[key] = rulesCfg
+		a.RulesPaths[key] = rulesPath
 		log.Printf("[Init] webhook=%s 规则引擎加载成功: %s", key, rulesPath)
 	}
 
@@ -124,6 +127,26 @@ func (a *App) Sync() {
 	metrics.SyncDuration.Observe(duration.Seconds())
 	metrics.SyncTotal.WithLabelValues("success").Inc()
 	metrics.LastSyncTimestamp.Set(float64(time.Now().Unix()))
+}
+
+// SaveRules 保存规则文件并重新编译引擎
+func (a *App) SaveRules(key string, cfg *types.RulesConfig) error {
+	path, ok := a.RulesPaths[key]
+	if !ok {
+		return fmt.Errorf("webhook %s 的规则路径未找到", key)
+	}
+	if err := config.SaveRules(path, cfg); err != nil {
+		return err
+	}
+	// 重新编译引擎
+	engine, err := rules.NewEngine(a.Store, a.Client, cfg, a.Config.DimensionNames)
+	if err != nil {
+		return fmt.Errorf("规则编译失败: %w", err)
+	}
+	a.Engines[key] = engine
+	a.Checker.UpdateEngine(key, engine)
+	log.Printf("[Rules] webhook=%s 规则已更新并重编译", key)
+	return nil
 }
 
 // Run 启动后台同步循环、消费循环和 HTTP Server（阻塞）
@@ -171,6 +194,7 @@ func (a *App) Run() error {
 		Version:          a.Version,
 		OnSync:           a.Sync,
 		RulesCfgs:        a.RulesCfgs,
+		SaveRulesFunc:    a.SaveRules,
 		StartTime:        a.StartTime,
 		LastSyncDuration: &a.LastSyncDuration,
 	})

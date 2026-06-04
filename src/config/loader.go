@@ -64,6 +64,21 @@ func LoadRules(path string) (*types.RulesConfig, error) {
 	return &rules, nil
 }
 
+// SaveRules 验证并保存规则配置到 JSON 文件
+func SaveRules(path string, cfg *types.RulesConfig) error {
+	if err := ValidateRules(cfg); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化规则失败: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("写入规则文件失败: %w", err)
+	}
+	return nil
+}
+
 // ValidateRules 验证规则配置的语法
 func ValidateRules(cfg *types.RulesConfig) error {
 	for _, target := range cfg.Targets {

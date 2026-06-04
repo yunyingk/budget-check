@@ -105,10 +105,15 @@
     <div v-if="currentPage === 'rules'" class="page-rules">
       <div v-if="webhooks.length === 0" class="empty">未配置 webhook</div>
       <div v-for="wh in webhooks" :key="wh.key" class="rules-webhook-section">
-        <h3 class="webhook-title">{{ wh.key }}<span class="webhook-meta">{{ wh.rules || ('rules/' + wh.key + '.json') }}</span></h3>
+        <div class="webhook-title-row">
+          <h3 class="webhook-title">{{ wh.key }}<span class="webhook-meta">{{ wh.rules || ('rules/' + wh.key + '.json') }}</span></h3>
+          <button v-if="editMode !== wh.key" class="btn btn-primary btn-sm" @click="startEdit(wh.key)">编辑</button>
+        </div>
         <div v-if="!rules[wh.key]" class="loading">加载中...</div>
         <div v-else-if="!rules[wh.key].targets || rules[wh.key].targets.length === 0" class="empty">未配置规则 target</div>
-        <div v-else>
+
+        <!-- 只读展示 -->
+        <div v-if="editMode !== wh.key && rules[wh.key]">
           <div v-for="t in rules[wh.key].targets" :key="t.id" class="rule-target-card">
             <div class="target-header">
               <span class="target-name">{{ t.name }}</span>
@@ -130,6 +135,61 @@
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- 编辑器 -->
+        <div v-if="editMode === wh.key && editDraft" class="editor">
+          <div class="editor-toolbar">
+            <span class="editor-title">编辑规则配置</span>
+            <div class="editor-actions">
+              <button class="btn btn-secondary btn-sm" @click="cancelEdit">取消</button>
+              <button class="btn btn-primary btn-sm" @click="saveRules(wh.key)" :disabled="editSaving">{{ editSaving ? '保存中...' : '保存' }}</button>
+            </div>
+          </div>
+          <div v-if="editMsg" class="editor-msg" :class="editMsg.startsWith('✓') ? 'msg-ok' : 'msg-err'">{{ editMsg }}</div>
+
+          <!-- Targets -->
+          <div v-for="(t, ti) in editDraft.targets" :key="ti" class="edit-target">
+            <div class="edit-target-header">
+              <div class="edit-target-fields">
+                <label>名称 <input v-model="t.name" class="input-sm" placeholder="预算包名称"></label>
+                <label>ID <input v-model="t.id" class="input-sm input-id" placeholder="预算包 ID"></label>
+              </div>
+              <button class="btn-icon btn-danger" @click="removeTarget(ti)" title="删除此 target">✕</button>
+            </div>
+
+            <!-- Steps -->
+            <div class="edit-steps">
+              <div v-for="(s, si) in t.steps" :key="si" class="edit-step">
+                <div class="edit-step-num">{{ si + 1 }}</div>
+                <div class="edit-step-fields">
+                  <input v-model="s.description" class="input-sm" placeholder="步骤描述">
+                  <select v-model="s.action" class="input-sm">
+                    <option value="">无动作</option>
+                    <option value="split_detail">split_detail</option>
+                    <option value="split_apportion">split_apportion</option>
+                    <option value="match_info_to_budget">match_info_to_budget</option>
+                  </select>
+                  <input v-model="s.when" class="input-sm input-expr" placeholder="when 条件表达式" v-if="!s.action">
+                  <select v-model="s.then" class="input-sm" v-if="s.when && !s.action">
+                    <option value="">无</option>
+                    <option value="pass">pass</option>
+                    <option value="refuse">refuse</option>
+                    <option value="commit">commit</option>
+                  </select>
+                  <input v-model="s.reason" class="input-sm" placeholder="reason 说明" v-if="s.then">
+                </div>
+                <div class="edit-step-btns">
+                  <button class="btn-icon" @click="moveStep(ti, si, -1)" :disabled="si === 0" title="上移">↑</button>
+                  <button class="btn-icon" @click="moveStep(ti, si, 1)" :disabled="si === t.steps.length - 1" title="下移">↓</button>
+                  <button class="btn-icon btn-danger" @click="removeStep(ti, si)" title="删除步骤">✕</button>
+                </div>
+              </div>
+              <button class="btn btn-secondary btn-sm btn-add-step" @click="addStep(ti)">+ 添加步骤</button>
+            </div>
+          </div>
+
+          <button class="btn btn-secondary btn-add-target" @click="addTarget()">+ 添加预算包 (Target)</button>
         </div>
       </div>
     </div>
