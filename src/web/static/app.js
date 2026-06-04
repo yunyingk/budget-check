@@ -13,6 +13,7 @@ const app = createApp({
     const queuePending = ref(0)
     const memoryMB = ref(0)
     const goroutines = ref(0)
+    const feeTypeCount = ref(0)
     const targets = ref([])
     const history = ref([])
     const webhooks = ref([])
@@ -58,6 +59,7 @@ const app = createApp({
         queuePending.value = d.queue?.pending || 0
         memoryMB.value = d.memory_mb || 0
         goroutines.value = d.goroutines || 0
+        feeTypeCount.value = d.fee_type_count || 0
         targets.value = d.targets || []
         metrics.value = d.metrics || {}
       } catch (e) {
@@ -212,6 +214,7 @@ const app = createApp({
       queuePending,
       memoryMB,
       goroutines,
+      feeTypeCount,
       targets,
       history,
       webhooks,
