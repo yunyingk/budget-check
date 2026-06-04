@@ -280,10 +280,10 @@ func (e *Engine) getNodeDisplayName(dimCode string) string {
 func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 	tree := e.store.GetTreeByID(target.def.ID)
 	if tree == nil {
-		return "预算包未同步"
+		return fmt.Sprintf("%s：预算包未同步", target.def.Name)
 	}
 	if len(tree.Root) == 0 {
-		return "预算包为空"
+		return fmt.Sprintf("%s：预算包为空", target.def.Name)
 	}
 
 	currentNodes := tree.Root
@@ -297,7 +297,7 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		dimName := e.getDimName(first.DimId)
 		fieldValue, _ := unit.Fields[first.DimId].(string)
 		if fieldValue == "" {
-			return fmt.Sprintf("缺少%s", dimName)
+			return fmt.Sprintf("%s：缺少%s", target.def.Name, dimName)
 		}
 
 		set := make(map[string]bool, len(currentNodes))
@@ -309,14 +309,14 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		if first.DimType == "PROJECT" {
 			id, found := e.client.FindAncestorInTree(fieldValue, set, 5)
 			if !found {
-				return fmt.Sprintf("%s %s 不在预算包内", dimName, e.getNodeDisplayName(fieldValue))
+				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
 			}
 			matched = currentNodes[id]
 		} else {
 			if node, ok := currentNodes[fieldValue]; ok {
 				matched = node
 			} else {
-				return fmt.Sprintf("%s %s 不在预算包内", dimName, e.getNodeDisplayName(fieldValue))
+				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
 			}
 		}
 
