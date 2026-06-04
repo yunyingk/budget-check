@@ -259,6 +259,22 @@ func (e *Engine) getDimName(dimId string) string {
 	return dimId
 }
 
+// getNodeDisplayName 获取维度内容显示名称，格式为 "名称(ID)" 或 "ID"
+// 优先从预算树获取，找不到则调用合思 API 获取
+func (e *Engine) getNodeDisplayName(dimCode string) string {
+	// 先从预算树节点获取
+	if node, ok := e.store.FindNode(dimCode); ok && node.NodeName != "" {
+		return fmt.Sprintf("%s(%s)", node.NodeName, dimCode)
+	}
+	// 预算树找不到，调用合思 API
+	if e.client != nil {
+		if dim, err := e.client.GetDimension(dimCode); err == nil && dim.Name != "" {
+			return fmt.Sprintf("%s(%s)", dim.Name, dimCode)
+		}
+	}
+	return dimCode
+}
+
 // matchToBudget 把单据字段逐层匹配到预算树
 // 每层用 DimId 作为字段名取值，PROJECT 类型向上找祖先，其他类型精确匹配
 func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
@@ -293,14 +309,14 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		if first.DimType == "PROJECT" {
 			id, found := e.client.FindAncestorInTree(fieldValue, set, 5)
 			if !found {
-				return fmt.Sprintf("%s %s 不在预算包内", dimName, fieldValue)
+				return fmt.Sprintf("%s %s 不在预算包内", dimName, e.getNodeDisplayName(fieldValue))
 			}
 			matched = currentNodes[id]
 		} else {
 			if node, ok := currentNodes[fieldValue]; ok {
 				matched = node
 			} else {
-				return fmt.Sprintf("%s %s 不在预算包内", dimName, fieldValue)
+				return fmt.Sprintf("%s %s 不在预算包内", dimName, e.getNodeDisplayName(fieldValue))
 			}
 		}
 
