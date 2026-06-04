@@ -57,6 +57,9 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 	metrics.QueueSize.Set(float64(queueSize))
 	metrics.QueuePending.Set(float64(queuePending))
 
+	// 获取 Prometheus 指标
+	promMetrics := metrics.GetMetrics()
+
 	writeJSON(w, 200, map[string]interface{}{
 		"status":           "ok",
 		"version":          version,
@@ -72,7 +75,8 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 			"pending":  queuePending,
 			"capacity": queueSize,
 		},
-		"targets": targets,
+		"targets":  targets,
+		"metrics":  promMetrics,
 	})
 }
 

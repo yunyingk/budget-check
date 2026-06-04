@@ -381,6 +381,7 @@ header .version {
 
 /* Page containers */
 .page-webhooks,
+.page-rules,
 .page-dimension {
   max-width: 1200px;
   margin: 0 auto;
@@ -411,3 +412,12 @@ header .version {
     grid-column: 1 / -1;
   }
 }
+
+/* Card border colors */
+.card-status { border-left: 4px solid var(--primary); }
+.card-resource { border-left: 4px solid var(--success); }
+.card-targets { border-left: 4px solid var(--info); }
+.card-history { border-left: 4px solid var(--warn); }
+.card-actions { border-left: 4px solid var(--text-secondary); }
+.card-metrics { border-left: 4px solid var(--danger); }
+.card-sync-stats { border-left: 4px solid var(--success); }

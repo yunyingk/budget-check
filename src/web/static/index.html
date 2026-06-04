@@ -8,19 +8,158 @@
 <link rel="stylesheet" href="static/style.css">
 </head>
 <body>
-<header>
-  <div class="header-main">
-    <h1>合思预算校验服务 <span class="version" id="headerVersion">v-</span></h1>
-  </div>
-  <nav class="nav-tabs" id="navTabs">
-    <a href="#" class="nav-tab active" data-page="overview">概览</a>
-    <a href="#" class="nav-tab" data-page="rules">规则工作流</a>
-    <a href="#" class="nav-tab" data-page="webhooks">Webhooks</a>
-  </nav>
-</header>
+<div id="app">
+  <header>
+    <div class="header-main">
+      <h1>合思预算校验服务 <span class="version" id="headerVersion">v{{ version }}</span></h1>
+    </div>
+    <nav class="nav-tabs">
+      <a href="#" class="nav-tab" :class="{ active: currentPage === 'overview' }" @click.prevent="switchPage('overview')">概览</a>
+      <a href="#" class="nav-tab" :class="{ active: currentPage === 'rules' }" @click.prevent="switchPage('rules')">规则工作流</a>
+      <a href="#" class="nav-tab" :class="{ active: currentPage === 'webhooks' }" @click.prevent="switchPage('webhooks')">Webhooks</a>
+    </nav>
+  </header>
 
-<main id="pageContainer"></main>
+  <main>
+    <!-- 概览页面 -->
+    <div v-if="currentPage === 'overview'" class="grid">
+      <section class="card card-status">
+        <h2>服务状态</h2>
+        <div class="kv-list">
+          <div class="kv"><span class="k">版本号</span><span class="v">{{ version }}</span></div>
+          <div class="kv"><span class="k">总末端节点</span><span class="v">{{ totalLeafCount }} 节点</span></div>
+          <div class="kv"><span class="k">同步状态</span><span class="v"><span class="tag" :class="isSyncing ? 'tag-warn' : 'tag-ok'">{{ isSyncing ? '同步中...' : '同步完成' }}</span></span></div>
+          <div class="kv"><span class="k">上次同步</span><span class="v">{{ lastSyncAt }}</span></div>
+          <div class="kv"><span class="k">同步间隔</span><span class="v">{{ intervalMinutes }} 分钟</span></div>
+          <div class="kv"><span class="k">队列待处理</span><span class="v">{{ queuePending }} / {{ queueSize }}</span></div>
+        </div>
+      </section>
 
+      <section class="card card-resource">
+        <h2>资源占用</h2>
+        <div class="kv-list">
+          <div class="kv"><span class="k">内存</span><span class="v">{{ memoryMB }} MB</span></div>
+          <div class="kv"><span class="k">协程数</span><span class="v">{{ goroutines }}</span></div>
+        </div>
+      </section>
+
+      <section class="card card-metrics">
+        <h2>校验统计</h2>
+        <div class="kv-list">
+          <div v-for="(actions, webhook) in metrics.checks" :key="webhook" class="kv">
+            <span class="k">{{ webhook }}</span>
+            <span class="v">
+              <span class="tag tag-ok">接受 {{ actions.accept || 0 }}</span>
+              <span class="tag tag-refuse">拒绝 {{ actions.refuse || 0 }}</span>
+            </span>
+          </div>
+          <div v-if="!metrics.checks || Object.keys(metrics.checks).length === 0" class="kv empty">暂无校验记录</div>
+        </div>
+      </section>
+
+      <section class="card card-sync-stats">
+        <h2>同步统计</h2>
+        <div class="kv-list">
+          <div class="kv"><span class="k">成功次数</span><span class="v"><span class="tag tag-ok">{{ metrics.syncs?.success || 0 }}</span></span></div>
+          <div class="kv"><span class="k">失败次数</span><span class="v"><span class="tag tag-refuse">{{ metrics.syncs?.error || 0 }}</span></span></div>
+          <div class="kv"><span class="k">最后同步</span><span class="v">{{ formatTimestamp(metrics.last_sync_timestamp) }}</span></div>
+        </div>
+      </section>
+
+      <section class="card card-targets">
+        <h2>预算目标</h2>
+        <div class="kv-list">
+          <div v-if="targets.length === 0" class="kv empty">暂无预算目标</div>
+          <div v-for="t in targets" :key="t.name" class="kv">
+            <span class="k">{{ t.name }}</span>
+            <span class="v"><span class="tag tag-ok">{{ t.count }} 末端节点</span></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card-history">
+        <h2>最近处理</h2>
+        <div class="history-list">
+          <div v-if="history.length === 0" class="empty">暂无处理记录</div>
+          <div v-for="h in history" :key="h.time + h.code" class="history-item">
+            <span class="time">{{ h.time }}</span>
+            <span class="code">{{ h.code }}</span>
+            <span class="action"><span class="tag" :class="h.action === 'accept' ? 'tag-ok' : 'tag-refuse'">{{ h.action }}</span></span>
+            <span class="comment">{{ h.comment }}</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card card-actions">
+        <h2>操作</h2>
+        <div class="btn-group">
+          <button class="btn btn-primary" @click="doSync" :disabled="syncing">{{ syncing ? '同步中...' : '手动同步' }}</button>
+          <a class="btn btn-secondary" href="/api/status" target="_blank">状态 API</a>
+          <a class="btn btn-secondary" href="/metrics" target="_blank">Prometheus</a>
+        </div>
+        <div class="sync-msg">{{ syncMsg }}</div>
+      </section>
+    </div>
+
+    <!-- 规则工作流页面 -->
+    <div v-if="currentPage === 'rules'" class="page-rules">
+      <div v-if="webhooks.length === 0" class="empty">未配置 webhook</div>
+      <div v-for="wh in webhooks" :key="wh.key" class="rules-webhook-section">
+        <h3 class="webhook-title">{{ wh.key }}<span class="webhook-meta">{{ wh.rules || ('rules/' + wh.key + '.json') }}</span></h3>
+        <div v-if="!rules[wh.key]" class="loading">加载中...</div>
+        <div v-else-if="!rules[wh.key].targets || rules[wh.key].targets.length === 0" class="empty">未配置规则 target</div>
+        <div v-else>
+          <div v-for="t in rules[wh.key].targets" :key="t.id" class="rule-target-card">
+            <div class="target-header">
+              <span class="target-name">{{ t.name }}</span>
+              <code class="target-id">{{ t.id }}</code>
+            </div>
+            <div class="step-list">
+              <div v-for="(s, si) in t.steps" :key="si" class="step-item" :class="s.action ? 'step-action' : (s.when ? 'step-condition' : '')">
+                <div class="step-num">{{ si + 1 }}</div>
+                <div class="step-body">
+                  <div class="step-icon" v-html="s.action ? '&#9881;' : (s.when ? '&#128260;' : '&#10067;')"></div>
+                  <div class="step-main">
+                    <div class="step-desc">{{ s.description }}</div>
+                    <div v-if="s.action" class="step-line step-action">action: <code>{{ s.action }}</code></div>
+                    <div v-if="s.when" class="step-line step-when">when: <code>{{ s.when }}</code></div>
+                    <div v-if="s.then" class="step-line step-then">then: <code>{{ s.then }}</code></div>
+                    <div v-if="s.reason" class="step-line step-reason">reason: {{ s.reason }}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Webhooks 页面 -->
+    <div v-if="currentPage === 'webhooks'" class="page-webhooks">
+      <div v-if="webhooks.length === 0" class="empty">未配置 webhook</div>
+      <table v-else class="data-table">
+        <thead>
+          <tr>
+            <th>Key</th>
+            <th>Sign Key</th>
+            <th>Rules 文件</th>
+            <th>预算包</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="wh in webhooks" :key="wh.key">
+            <td><strong>{{ wh.key }}</strong></td>
+            <td><code class="muted">{{ wh.sign_key }}</code></td>
+            <td>{{ wh.rules || ('rules/' + wh.key + '.json') }}</td>
+            <td>{{ (wh.targets || []).map(t => t.name || t.id).join('、') || '-' }}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
 <script src="static/app.js"></script>
 </body>
 </html>
