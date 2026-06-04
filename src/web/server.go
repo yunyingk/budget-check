@@ -9,6 +9,7 @@ import (
 	"embed"
 	"log"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,15 +18,17 @@ var staticFS embed.FS
 
 // Deps web 层运行期依赖
 type Deps struct {
-	Config     *config.Config
-	Store      *budget.Store
-	Checker    *consumer.Checker
-	TokenStore *TokenStore
-	Queue      *queue.Queue
-	Syncing    func() bool
-	Version    string
-	OnSync     func()                        // 手动同步回调
-	RulesCfgs  map[string]*types.RulesConfig // webhookKey → RulesConfig
+	Config           *config.Config
+	Store            *budget.Store
+	Checker          *consumer.Checker
+	TokenStore       *TokenStore
+	Queue            *queue.Queue
+	Syncing          func() bool
+	Version          string
+	OnSync           func()                        // 手动同步回调
+	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig
+	StartTime        time.Time                     // 服务启动时间
+	LastSyncDuration *atomic.Int64                 // 上次同步耗时（纳秒）
 }
 
 // Register 向 mux 注册所有路由
@@ -51,7 +54,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 			authMiddleware(deps.TokenStore, cfg.Web.Password)(handleHome)(w, r)
 		})
 		mux.HandleFunc("/api/status", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
-			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize)
+			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration)
 		}))
 		mux.HandleFunc("/api/history", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, deps.Checker)
@@ -70,7 +73,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 		log.Printf("[Web] 管理页面已启用: http://localhost:%d", cfg.Server.Port)
 	} else {
 		mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize)
+			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration)
 		})
 	}
 

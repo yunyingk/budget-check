@@ -6,8 +6,10 @@ import (
 	"budget/src/consumer"
 	"budget/src/types"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,7 +19,7 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(data)
 }
 
-func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int) {
+func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64) {
 	lastSync := store.UpdatedAt()
 	lastSyncStr := ""
 	if !lastSync.IsZero() {
@@ -34,18 +36,44 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 		})
 	}
 
+	// 计算运行时间
+	uptime := time.Since(startTime)
+	uptimeStr := formatDuration(uptime)
+
+	// 同步耗时
+	syncDurationSec := float64(0)
+	if lastSyncDuration != nil {
+		syncDurationSec = float64(lastSyncDuration.Load()) / float64(time.Second)
+	}
+
 	writeJSON(w, 200, map[string]interface{}{
 		"status":           "ok",
 		"version":          version,
+		"uptime":           uptimeStr,
 		"total_leaf_count": store.TotalLeafCount(),
 		"is_syncing":       syncing(),
 		"last_sync_at":     lastSyncStr,
+		"sync_duration_sec": syncDurationSec,
 		"memory_mb":        bToMB(m.Alloc),
 		"goroutines":       runtime.NumGoroutine(),
 		"interval_minutes": interval,
-		"queue_size":       queueSize,
-		"targets":          targets,
+		"queue": map[string]interface{}{
+			"pending":  queuePending,
+			"capacity": queueSize,
+		},
+		"targets": targets,
 	})
+}
+
+// formatDuration 格式化持续时间为可读字符串
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%dm%ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%dh%dm", int(d.Hours()), int(d.Minutes())%60)
 }
 
 func handleHistory(w http.ResponseWriter, r *http.Request, checker *consumer.Checker) {
