@@ -380,6 +380,58 @@ header .version {
 .step-action .step-icon { color: var(--primary); }
 .step-condition .step-icon { color: var(--warn); }
 
+/* Step tooltip on code hover */
+code.has-tip {
+  position: relative;
+  cursor: help;
+  border-bottom: 1px dashed currentColor;
+}
+code.has-tip::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.6;
+  white-space: normal;
+  width: max-content;
+  max-width: 320px;
+  text-align: left;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 20;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(6px);
+}
+code.has-tip::before {
+  content: '';
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(0, 0, 0, 0.85);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  z-index: 20;
+}
+code.has-tip:hover::after,
+code.has-tip:hover::before {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+.step-then-inline {
+  margin-left: 2px;
+}
+
 /* Page containers */
 .page-webhooks {
   max-width: 1200px;

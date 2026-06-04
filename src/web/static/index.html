@@ -165,9 +165,15 @@
                   <div class="step-icon" v-html="s.action ? '&#9881;' : (s.when ? '&#128260;' : '&#10067;')"></div>
                   <div class="step-main">
                     <div class="step-desc">{{ s.description }}</div>
-                    <div v-if="s.action" class="step-line step-action">action: <code>{{ s.action }}</code></div>
-                    <div v-if="s.when" class="step-line step-when">when: <code>{{ s.when }}</code></div>
-                    <div v-if="s.then" class="step-line step-then">then: <code>{{ s.then }}</code></div>
+                    <div v-if="s.action" class="step-line step-action">
+                      action: <code class="has-tip" :title="stepTooltip(s)">{{ s.action }}</code>
+                    </div>
+                    <div v-if="s.when" class="step-line step-when">
+                      when: <code>{{ s.when }}</code>
+                      <span v-if="s.then" class="step-then-inline">
+                        → <code class="has-tip" :title="stepTooltip(s)">{{ s.then }}</code>
+                      </span>
+                    </div>
                     <div v-if="s.reason" class="step-line step-reason">reason: {{ s.reason }}</div>
                   </div>
                 </div>

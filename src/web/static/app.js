@@ -237,6 +237,27 @@ const app = createApp({
       }
     }
 
+    // Step tooltip descriptions
+    const STEP_DESCS = {
+      split_detail: '拆分明细：从 details 字段拆分为多条记录，合并费用类型表单字段，每条明细独立校验',
+      split_apportion: '拆分分摊：从 apportions 字段拆分为多条记录，合并分摊表单字段，每条分摊独立校验',
+      match_info_to_budget: '匹配预算包：按维度字段（成本中心/项目/费用类型）在预算树中查找匹配的预算包',
+    }
+    const THEN_DESCS = {
+      pass: '通过：跳过后续所有步骤，该记录直接放行',
+      refuse: '拒绝：拒绝该单据，终止流程',
+      commit: '提交：保留当前 unit 并跳过后续非 split 步骤',
+    }
+    function stepTooltip(s) {
+      if (s.action) return STEP_DESCS[s.action] || s.action
+      if (s.when && s.then) {
+        const thenDesc = THEN_DESCS[s.then] || s.then
+        return `条件判断：当 ${s.when} 为真时，${thenDesc}`
+      }
+      if (s.when) return `条件判断：当 ${s.when} 为真时执行此步骤`
+      return ''
+    }
+
     // Lifecycle
     onMounted(async () => {
       await refresh()
@@ -271,7 +292,7 @@ const app = createApp({
       memoryPct, goroutinePct, memoryColor, goroutineColor,
       MEMORY_STD, GOROUTINE_STD, CIRCUMFERENCE,
       // Helpers
-      formatTimestamp,
+      formatTimestamp, stepTooltip,
     }
   }
 })
