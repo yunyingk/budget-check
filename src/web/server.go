@@ -4,6 +4,7 @@ import (
 	"budget/src/budget"
 	"budget/src/config"
 	"budget/src/consumer"
+	"budget/src/ekb"
 	"budget/src/queue"
 	"budget/src/types"
 	"embed"
@@ -30,6 +31,7 @@ type Deps struct {
 	SaveRulesFunc    func(string, *types.RulesConfig) error // 保存规则+重编译引擎
 	StartTime        time.Time                     // 服务启动时间
 	LastSyncDuration *atomic.Int64                 // 上次同步耗时（纳秒）
+	Client           *ekb.Client                   // 合思客户端（用于获取费用类型数量）
 }
 
 // Register 向 mux 注册所有路由
@@ -55,7 +57,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 			authMiddleware(deps.TokenStore, cfg.Web.Password)(handleHome)(w, r)
 		})
 		mux.HandleFunc("/api/status", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
-			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration)
+			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration, deps.Client)
 		}))
 		mux.HandleFunc("/api/history", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, deps.Checker)
@@ -63,7 +65,11 @@ func Register(mux *http.ServeMux, deps Deps) {
 
 		// 规则配置 API
 		mux.HandleFunc("/api/rules/", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
-			handleRules(w, r, deps.RulesCfgs)
+			if r.Method == http.MethodPut {
+				handleSaveRules(w, r, deps.RulesCfgs, deps.SaveRulesFunc)
+			} else {
+				handleRules(w, r, deps.RulesCfgs)
+			}
 		}))
 
 		// Webhooks 配置 API
@@ -74,7 +80,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 		log.Printf("[Web] 管理页面已启用: http://localhost:%d", cfg.Server.Port)
 	} else {
 		mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration)
+			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration, deps.Client)
 		})
 	}
 

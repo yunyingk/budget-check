@@ -380,9 +380,7 @@ header .version {
 .step-condition .step-icon { color: var(--warn); }
 
 /* Page containers */
-.page-webhooks,
-.page-rules,
-.page-dimension {
+.page-webhooks {
   max-width: 1200px;
   margin: 0 auto;
   background: var(--card-bg);
@@ -418,14 +416,25 @@ header .version {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 .webhook-title-row .webhook-title { margin-bottom: 0; }
 
 .btn-sm { padding: 5px 12px; font-size: 12px; }
 
-.editor { margin-top: 8px; }
+.editor {
+  border-top: 1px solid var(--border);
+  padding-top: 16px;
+  margin-top: 8px;
+}
 
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.editor-title { font-weight: 600; font-size: 14px; }
 .editor-actions { display: flex; gap: 8px; }
 
 .editor-msg {
@@ -472,12 +481,15 @@ header .version {
   border-radius: 4px;
   font-size: 13px;
   outline: none;
+  transition: border-color 0.2s;
 }
 .input-sm:focus { border-color: var(--primary); }
 .input-id { width: 160px; font-family: monospace; font-size: 12px; }
-.input-expr { width: 200px; font-family: monospace; font-size: 12px; }
+.input-expr { width: 220px; font-family: monospace; font-size: 12px; }
 
-.edit-steps { padding: 10px 14px; }
+.edit-steps {
+  padding: 10px 14px;
+}
 
 .edit-step {
   display: flex;
@@ -528,6 +540,7 @@ header .version {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: all 0.15s;
 }
 .btn-icon:hover:not(:disabled) { background: var(--bg); }
 .btn-icon:disabled { opacity: 0.3; cursor: not-allowed; }

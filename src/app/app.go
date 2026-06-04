@@ -143,6 +143,7 @@ func (a *App) SaveRules(key string, cfg *types.RulesConfig) error {
 	if err := config.SaveRules(path, cfg); err != nil {
 		return err
 	}
+	// 重新编译引擎
 	engine, err := rules.NewEngine(a.Store, a.Client, cfg, a.Config.DimensionNames)
 	if err != nil {
 		return fmt.Errorf("规则编译失败: %w", err)
@@ -201,6 +202,7 @@ func (a *App) Run() error {
 		SaveRulesFunc:    a.SaveRules,
 		StartTime:        a.StartTime,
 		LastSyncDuration: &a.LastSyncDuration,
+		Client:           a.Client,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", a.Config.Server.Port)

@@ -22,10 +22,10 @@ const app = createApp({
     const metrics = ref({})
 
     // 编辑器状态
-    const editMode = ref(null)
-    const editDraft = ref(null)
-    const editMsg = ref('')
-    const editSaving = ref(false)
+    const editMode = ref(null)      // 当前编辑的 webhook key
+    const editDraft = ref(null)     // 编辑中的规则副本
+    const editMsg = ref('')         // 编辑器反馈消息
+    const editSaving = ref(false)   // 保存中
 
     let refreshTimer = null
 
@@ -202,13 +202,39 @@ const app = createApp({
     })
 
     return {
-      currentPage, version, totalLeafCount, isSyncing, lastSyncAt,
-      intervalMinutes, queueSize, queuePending, memoryMB, goroutines,
-      targets, history, webhooks, rules, syncing, syncMsg, metrics,
-      switchPage, doSync, formatTimestamp,
-      editMode, editDraft, editMsg, editSaving,
-      startEdit, cancelEdit, addTarget, removeTarget,
-      addStep, removeStep, moveStep, saveRules
+      currentPage,
+      version,
+      totalLeafCount,
+      isSyncing,
+      lastSyncAt,
+      intervalMinutes,
+      queueSize,
+      queuePending,
+      memoryMB,
+      goroutines,
+      targets,
+      history,
+      webhooks,
+      rules,
+      syncing,
+      syncMsg,
+      metrics,
+      switchPage,
+      doSync,
+      formatTimestamp,
+      // 编辑器
+      editMode,
+      editDraft,
+      editMsg,
+      editSaving,
+      startEdit,
+      cancelEdit,
+      addTarget,
+      removeTarget,
+      addStep,
+      removeStep,
+      moveStep,
+      saveRules
     }
   }
 })

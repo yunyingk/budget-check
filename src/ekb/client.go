@@ -33,8 +33,10 @@ type Client struct {
 	expiry time.Time
 	client *http.Client
 
-	dimCache map[string]*dimCacheEntry
-	dimMu    sync.RWMutex
+	dimCache    map[string]*dimCacheEntry
+	dimMu       sync.RWMutex
+	feeTypes    map[string]*Dimension // feeTypeId -> Dimension (含 ParentID)
+	feeTypesMu  sync.RWMutex
 }
 
 func NewClient(host, appKey, secret string) *Client {
@@ -43,6 +45,7 @@ func NewClient(host, appKey, secret string) *Client {
 		AppKey:   appKey,
 		Secret:   secret,
 		client:   &http.Client{Timeout: 15 * time.Second},
+		feeTypes: make(map[string]*Dimension),
 		dimCache: make(map[string]*dimCacheEntry),
 	}
 }
@@ -117,8 +120,9 @@ func (c *Client) HostURL(path string) string {
 	return c.Host + path
 }
 
-// GetDimension 获取维度信息（带缓存，30分钟过期）
-func (c *Client) GetDimension(id string) (*Dimension, error) {
+// GetProjectDimension 获取档案维度信息（带缓存，30分钟过期）
+// 仅支持 PROJECT（档案）类型，调用 /api/openapi/v1/dimensions/getDimensionById
+func (c *Client) GetProjectDimension(id string) (*Dimension, error) {
 	c.dimMu.RLock()
 	if entry, ok := c.dimCache[id]; ok && time.Now().Before(entry.expires) {
 		c.dimMu.RUnlock()
@@ -175,21 +179,163 @@ func (c *Client) cleanExpiredCache() {
 	}
 }
 
-// FindAncestorInTree 向上查找祖先节点是否在树中
-// 返回：找到的节点 ID、是否找到、错误
-func (c *Client) FindAncestorInTree(id string, tree map[string]bool, maxLevels int) (string, bool) {
+// FindProjectAncestorInTree 向上查找祖先节点是否在树中
+// 仅支持 PROJECT（档案）类型，通过 getDimensionById API 获取父级
+// 返回：找到的节点 ID、是否找到
+func (c *Client) FindProjectAncestorInTree(id string, tree map[string]bool, maxLevels int) (string, bool) {
 	current := id
 	for i := 0; i < maxLevels; i++ {
 		if tree[current] {
 			return current, true
 		}
-		dim, err := c.GetDimension(current)
+		dim, err := c.GetProjectDimension(current)
 		if err != nil || dim.ParentID == "" {
 			return "", false
 		}
 		current = dim.ParentID
 	}
 	return "", false
+}
+
+// GetDepartment 获取部门信息（带缓存，30分钟过期）
+// 调用 /api/openapi/v1/departments/$idOrCode
+func (c *Client) GetDepartment(id string) (*Dimension, error) {
+	c.dimMu.RLock()
+	if entry, ok := c.dimCache[id]; ok && time.Now().Before(entry.expires) {
+		c.dimMu.RUnlock()
+		return entry.dim, nil
+	}
+	c.dimMu.RUnlock()
+
+	c.cleanExpiredCache()
+
+	token, err := c.GetToken()
+	if err != nil {
+		return nil, err
+	}
+
+	u := c.HostURL("/api/openapi/v1/departments/$" + url.QueryEscape(id) + "?departmentBy=id")
+	resp, err := c.GetWithToken(u, token)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("解析部门响应失败: %w", err)
+	}
+
+	val, _ := result["value"].(map[string]interface{})
+	if val == nil {
+		return nil, fmt.Errorf("部门 %s 未找到", id)
+	}
+
+	dim := &Dimension{
+		ID:       id,
+		Name:     getString(val, "name"),
+		ParentID: getString(val, "parentId"),
+	}
+
+	c.dimMu.Lock()
+	c.dimCache[id] = &dimCacheEntry{dim: dim, expires: time.Now().Add(30 * time.Minute)}
+	c.dimMu.Unlock()
+
+	return dim, nil
+}
+
+// FindDepartmentAncestorInTree 向上查找部门祖先节点是否在树中
+// 仅支持 DEPART（部门）类型，通过 departments API 获取父级
+// 返回：找到的节点 ID、是否找到
+func (c *Client) FindDepartmentAncestorInTree(id string, tree map[string]bool, maxLevels int) (string, bool) {
+	current := id
+	for i := 0; i < maxLevels; i++ {
+		if tree[current] {
+			return current, true
+		}
+		dim, err := c.GetDepartment(current)
+		if err != nil || dim.ParentID == "" {
+			return "", false
+		}
+		current = dim.ParentID
+	}
+	return "", false
+}
+
+// SyncFeeTypes 全量同步费用类型到内存缓存
+func (c *Client) SyncFeeTypes() error {
+	token, err := c.GetToken()
+	if err != nil {
+		return err
+	}
+
+	u := c.HostURL("/api/openapi/v1/feeTypes")
+	resp, err := c.GetWithToken(u, token)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return fmt.Errorf("解析费用类型响应失败: %w", err)
+	}
+
+	items, ok := result["items"].([]interface{})
+	if !ok {
+		return fmt.Errorf("费用类型响应格式错误: 缺少 items 字段")
+	}
+
+	newFeeTypes := make(map[string]*Dimension, len(items))
+	for _, item := range items {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, _ := m["id"].(string)
+		if id == "" {
+			continue
+		}
+		newFeeTypes[id] = &Dimension{
+			ID:       id,
+			Name:     getString(m, "name"),
+			ParentID: getString(m, "parentId"),
+		}
+	}
+
+	c.feeTypesMu.Lock()
+	c.feeTypes = newFeeTypes
+	c.feeTypesMu.Unlock()
+
+	return nil
+}
+
+// FindFeeTypeAncestorInTree 向上查找费用类型祖先节点是否在树中
+// 仅支持 FEE_TYPE（消费类型）类型，从内存缓存中查找父级
+// 返回：找到的节点 ID、是否找到
+func (c *Client) FindFeeTypeAncestorInTree(id string, tree map[string]bool, maxLevels int) (string, bool) {
+	c.feeTypesMu.RLock()
+	defer c.feeTypesMu.RUnlock()
+
+	current := id
+	for i := 0; i < maxLevels; i++ {
+		if tree[current] {
+			return current, true
+		}
+		ft, ok := c.feeTypes[current]
+		if !ok || ft.ParentID == "" {
+			return "", false
+		}
+		current = ft.ParentID
+	}
+	return "", false
+}
+
+// FeeTypeCount 返回已缓存的费用类型数量
+func (c *Client) FeeTypeCount() int {
+	c.feeTypesMu.RLock()
+	defer c.feeTypesMu.RUnlock()
+	return len(c.feeTypes)
 }
 
 func getString(m map[string]interface{}, key string) string {

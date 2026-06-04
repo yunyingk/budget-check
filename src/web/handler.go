@@ -4,6 +4,7 @@ import (
 	"budget/src/budget"
 	"budget/src/config"
 	"budget/src/consumer"
+	"budget/src/ekb"
 	"budget/src/metrics"
 	"budget/src/types"
 	"encoding/json"
@@ -26,7 +27,7 @@ func handleMetrics() http.Handler {
 	return promhttp.Handler()
 }
 
-func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64) {
+func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64, client *ekb.Client) {
 	lastSync := store.UpdatedAt()
 	lastSyncStr := ""
 	if !lastSync.IsZero() {
@@ -60,11 +61,18 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 	// 获取 Prometheus 指标
 	promMetrics := metrics.GetMetrics()
 
+	// 获取费用类型数量
+	feeTypeCount := 0
+	if client != nil {
+		feeTypeCount = client.FeeTypeCount()
+	}
+
 	writeJSON(w, 200, map[string]interface{}{
 		"status":           "ok",
 		"version":          version,
 		"uptime":           uptimeStr,
 		"total_leaf_count": store.TotalLeafCount(),
+		"fee_type_count":   feeTypeCount,
 		"is_syncing":       syncing(),
 		"last_sync_at":     lastSyncStr,
 		"sync_duration_sec": syncDurationSec,
@@ -110,6 +118,39 @@ func handleRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*t
 		return
 	}
 	writeJSON(w, 200, cfg)
+}
+
+// handleSaveRules 保存规则配置 PUT /api/rules/{webhookKey}
+func handleSaveRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*types.RulesConfig, saveFunc func(string, *types.RulesConfig) error) {
+	if r.Method != http.MethodPut {
+		writeJSON(w, 405, map[string]string{"error": "方法不允许"})
+		return
+	}
+	prefix := "/api/rules/"
+	key := r.URL.Path[len(prefix):]
+	if key == "" {
+		writeJSON(w, 400, map[string]string{"error": "缺少 webhook key"})
+		return
+	}
+	if _, ok := rulesCfgs[key]; !ok {
+		writeJSON(w, 404, map[string]string{"error": "规则配置未找到"})
+		return
+	}
+
+	var cfg types.RulesConfig
+	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "JSON 解析失败: " + err.Error()})
+		return
+	}
+
+	if err := saveFunc(key, &cfg); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// 更新内存中的配置
+	rulesCfgs[key] = &cfg
+	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
 // handleWebhooks 返回 webhook 配置列表（sign_key 脱敏）
