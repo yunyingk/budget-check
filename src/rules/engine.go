@@ -35,13 +35,14 @@ type compiledTarget struct {
 
 // Engine 规则引擎
 type Engine struct {
-	store   *budget.Store
-	client  *ekb.Client
-	targets []compiledTarget
+	store    *budget.Store
+	client   *ekb.Client
+	targets  []compiledTarget
+	dimNames map[string]string // 字段名→中文名映射
 }
 
-func NewEngine(store *budget.Store, client *ekb.Client, cfg *types.RulesConfig) (*Engine, error) {
-	e := &Engine{store: store, client: client}
+func NewEngine(store *budget.Store, client *ekb.Client, cfg *types.RulesConfig, dimNames map[string]string) (*Engine, error) {
+	e := &Engine{store: store, client: client, dimNames: dimNames}
 	if cfg == nil {
 		return e, nil
 	}
@@ -250,6 +251,14 @@ func splitApportion(units []CheckUnit) []CheckUnit {
 	return result
 }
 
+// getDimName 获取维度中文名，优先用配置映射，否则用字段名
+func (e *Engine) getDimName(dimId string) string {
+	if name, ok := e.dimNames[dimId]; ok {
+		return name
+	}
+	return dimId
+}
+
 // matchToBudget 把单据字段逐层匹配到预算树
 // 每层用 DimId 作为字段名取值，PROJECT 类型向上找祖先，其他类型精确匹配
 func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
@@ -269,9 +278,10 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 			break
 		}
 
+		dimName := e.getDimName(first.DimId)
 		fieldValue, _ := unit.Fields[first.DimId].(string)
 		if fieldValue == "" {
-			return fmt.Sprintf("缺少%s", first.DimId)
+			return fmt.Sprintf("缺少%s", dimName)
 		}
 
 		set := make(map[string]bool, len(currentNodes))
@@ -283,14 +293,14 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		if first.DimType == "PROJECT" {
 			id, found := e.client.FindAncestorInTree(fieldValue, set, 5)
 			if !found {
-				return fmt.Sprintf("%s %s 不在预算包内", first.DimId, fieldValue)
+				return fmt.Sprintf("%s %s 不在预算包内", dimName, fieldValue)
 			}
 			matched = currentNodes[id]
 		} else {
 			if node, ok := currentNodes[fieldValue]; ok {
 				matched = node
 			} else {
-				return fmt.Sprintf("%s %s 不在预算包内", first.DimId, fieldValue)
+				return fmt.Sprintf("%s %s 不在预算包内", dimName, fieldValue)
 			}
 		}
 

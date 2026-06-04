@@ -20,25 +20,28 @@ import (
 
 // App 应用程序容器，持有所有运行时状态
 type App struct {
-	Config    *config.Config
-	Logger    *rotatelog.RotatingLogger
-	Queue     *queue.Queue
-	Store     *budget.Store
-	StoreMu   sync.RWMutex
-	Client    *ekb.Client
-	Syncing   atomic.Bool
-	SyncCfg   budget.SyncConfig
-	Checker   *consumer.Checker
-	Engines   map[string]*rules.Engine        // webhookKey → Engine
-	RulesCfgs map[string]*types.RulesConfig   // webhookKey → RulesConfig（前端展示用）
-	Version   string
+	Config        *config.Config
+	Logger        *rotatelog.RotatingLogger
+	Queue         *queue.Queue
+	Store         *budget.Store
+	StoreMu       sync.RWMutex
+	Client        *ekb.Client
+	Syncing       atomic.Bool
+	SyncCfg       budget.SyncConfig
+	Checker       *consumer.Checker
+	Engines       map[string]*rules.Engine        // webhookKey → Engine
+	RulesCfgs     map[string]*types.RulesConfig   // webhookKey → RulesConfig（前端展示用）
+	Version       string
+	StartTime     time.Time                       // 服务启动时间
+	LastSyncDuration atomic.Int64                 // 上次同步耗时（纳秒）
 }
 
 // New 创建 App 实例（不初始化组件）
 func New(cfg *config.Config, logger *rotatelog.RotatingLogger) *App {
 	return &App{
-		Config: cfg,
-		Logger: logger,
+		Config:    cfg,
+		Logger:    logger,
+		StartTime: time.Now(),
 	}
 }
 
@@ -93,7 +96,7 @@ func (a *App) Init() error {
 			log.Printf("[Init] webhook=%s 规则文件不存在或加载失败: %v", key, err)
 			continue
 		}
-		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg)
+		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg, a.Config.DimensionNames)
 		if err != nil {
 			log.Printf("[Init] webhook=%s 规则编译失败: %v", key, err)
 			continue
@@ -113,7 +116,9 @@ func (a *App) Sync() {
 	defer a.Syncing.Store(false)
 	a.StoreMu.Lock()
 	defer a.StoreMu.Unlock()
+	start := time.Now()
 	budget.Sync(a.Store, a.Client, a.SyncCfg)
+	a.LastSyncDuration.Store(int64(time.Since(start)))
 }
 
 // Run 启动后台同步循环、消费循环和 HTTP Server（阻塞）
@@ -152,15 +157,17 @@ func (a *App) Run() error {
 	mux := http.NewServeMux()
 	tokenStore := web.NewTokenStore()
 	web.Register(mux, web.Deps{
-		Config:     a.Config,
-		Store:      a.Store,
-		Checker:    a.Checker,
-		TokenStore: tokenStore,
-		Queue:      a.Queue,
-		Syncing:    a.Syncing.Load,
-		Version:    a.Version,
-		OnSync:     a.Sync,
-		RulesCfgs:  a.RulesCfgs,
+		Config:           a.Config,
+		Store:            a.Store,
+		Checker:          a.Checker,
+		TokenStore:       tokenStore,
+		Queue:            a.Queue,
+		Syncing:          a.Syncing.Load,
+		Version:          a.Version,
+		OnSync:           a.Sync,
+		RulesCfgs:        a.RulesCfgs,
+		StartTime:        a.StartTime,
+		LastSyncDuration: &a.LastSyncDuration,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", a.Config.Server.Port)

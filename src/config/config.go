@@ -47,10 +47,11 @@ type WebConfig struct {
 
 // Config 全局运行时配置
 type Config struct {
-	Server       ServerConfig            `yaml:"server"`
-	Ekb          EkbConfig               `yaml:"ekuaibao"`
-	Webhooks     map[string]WebhookEntry `yaml:"webhooks"`
-	Sync         SyncConfig              `yaml:"sync"`
-	Logging      LogConfig               `yaml:"logging"`
-	Web          WebConfig               `yaml:"web"`
+	Server          ServerConfig            `yaml:"server"`
+	Ekb             EkbConfig               `yaml:"ekuaibao"`
+	Webhooks        map[string]WebhookEntry `yaml:"webhooks"`
+	Sync            SyncConfig              `yaml:"sync"`
+	Logging         LogConfig               `yaml:"logging"`
+	Web             WebConfig               `yaml:"web"`
+	DimensionNames  map[string]string       `yaml:"dimension_names"` // 字段名→中文名映射
 }
