@@ -237,24 +237,31 @@ const app = createApp({
       }
     }
 
-    // Step tooltip descriptions
-    const STEP_DESCS = {
-      split_detail: '拆分明细：从 details 字段拆分为多条记录，合并费用类型表单字段，每条明细独立校验',
-      split_apportion: '拆分分摊：从 apportions 字段拆分为多条记录，合并分摊表单字段，每条分摊独立校验',
-      match_info_to_budget: '匹配预算包：按维度字段（成本中心/项目/费用类型）在预算树中查找匹配的预算包',
+    // Step detail descriptions (multi-line)
+    const STEP_DETAILS = {
+      split_detail:
+        '将当前数据集中的每条记录，按其内嵌的明细（details）数组拆分为多条独立记录。\n' +
+        '拆分后每条新记录会继承父记录的表单字段，并额外合并该明细行自身的表单字段（如费用类型档案等）。\n' +
+        '拆分后的每条记录将独立参与后续所有步骤的校验，互不影响。',
+      split_apportion:
+        '将当前数据集中的每条记录，按其内嵌的分摊（apportions）数组拆分为多条独立记录。\n' +
+        '拆分后每条新记录会继承父记录的表单字段，并额外合并该分摊行自身的表单字段。\n' +
+        '拆分后的每条记录将独立参与后续所有步骤的校验，互不影响。',
+      match_info_to_budget:
+        '读取当前记录中的维度字段值，沿预算树向上查找祖先节点，\n' +
+        '定位到配置中指定的目标预算包（target），完成数据与预算的绑定匹配。\n' +
+        '匹配成功后该记录关联到对应的预算包，用于后续预算校验。',
     }
-    const THEN_DESCS = {
-      pass: '通过：跳过后续所有步骤，该记录直接放行',
-      refuse: '拒绝：拒绝该单据，终止流程',
-      commit: '提交：保留当前 unit 并跳过后续非 split 步骤',
+    const THEN_DETAILS = {
+      pass: '该记录跳过后续所有步骤，直接判定为通过。',
+      refuse: '该记录直接判定为拒绝，整个单据流程终止。',
+      commit: '保留当前记录已累积的 unit（预算占用），并跳过后续所有非 split 类型的步骤。\n' +
+             '如果后续还有 split_detail 或 split_apportion，仍会继续执行拆分。',
     }
-    function stepTooltip(s) {
-      if (s.action) return STEP_DESCS[s.action] || s.action
-      if (s.when && s.then) {
-        const thenDesc = THEN_DESCS[s.then] || s.then
-        return `条件判断：当 ${s.when} 为真时，${thenDesc}`
-      }
-      if (s.when) return `条件判断：当 ${s.when} 为真时执行此步骤`
+    const hoveredStep = ref(null)
+    function stepDetail(s) {
+      if (s.action) return STEP_DETAILS[s.action] || ''
+      if (s.then) return THEN_DETAILS[s.then] || ''
       return ''
     }
 
@@ -292,7 +299,7 @@ const app = createApp({
       memoryPct, goroutinePct, memoryColor, goroutineColor,
       MEMORY_STD, GOROUTINE_STD, CIRCUMFERENCE,
       // Helpers
-      formatTimestamp, stepTooltip,
+      formatTimestamp, stepDetail, hoveredStep,
     }
   }
 })

@@ -380,56 +380,67 @@ header .version {
 .step-action .step-icon { color: var(--primary); }
 .step-condition .step-icon { color: var(--warn); }
 
-/* Step tooltip on code hover */
-code.has-tip {
+.step-then-inline { margin-left: 2px; }
+
+/* Step detail panel — bottom-right of step item */
+.step-item {
   position: relative;
-  cursor: help;
-  border-bottom: 1px dashed currentColor;
 }
-code.has-tip::after {
-  content: attr(title);
+.step-detail-panel {
   position: absolute;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
-  background: rgba(0, 0, 0, 0.85);
-  color: #fff;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 1.6;
-  white-space: normal;
-  width: max-content;
-  max-width: 320px;
-  text-align: left;
+  top: 0;
+  right: 0;
+  transform: translateX(calc(100% + 12px));
+  width: 300px;
+  background: #1e1e2e;
+  color: #cdd6f4;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.8;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255,255,255,0.06);
+  z-index: 30;
+  animation: detailFadeIn 0.18s ease-out;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.2s ease, transform 0.2s ease;
-  z-index: 20;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
-  backdrop-filter: blur(6px);
 }
-code.has-tip::before {
+.step-detail-panel::before {
   content: '';
   position: absolute;
-  bottom: calc(100% + 3px);
-  left: 50%;
-  transform: translateX(-50%);
-  border: 5px solid transparent;
-  border-top-color: rgba(0, 0, 0, 0.85);
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  z-index: 20;
+  left: -6px;
+  top: 16px;
+  border: 6px solid transparent;
+  border-right-color: #1e1e2e;
 }
-code.has-tip:hover::after,
-code.has-tip:hover::before {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
+.step-detail-text {
+  white-space: pre-line;
 }
 
-.step-then-inline {
-  margin-left: 2px;
+@keyframes detailFadeIn {
+  from { opacity: 0; transform: translateX(calc(100% + 12px)) translateX(-6px); }
+  to   { opacity: 1; transform: translateX(calc(100% + 12px)) translateX(0); }
+}
+
+/* On small screens, show below instead of right */
+@media (max-width: 1100px) {
+  .step-detail-panel {
+    top: auto;
+    bottom: 0;
+    right: 0;
+    transform: translateY(calc(100% + 8px));
+    width: 100%;
+  }
+  .step-detail-panel::before {
+    left: 24px;
+    top: -6px;
+    bottom: auto;
+    border: 6px solid transparent;
+    border-bottom-color: #1e1e2e;
+    border-right-color: transparent;
+  }
+  @keyframes detailFadeIn {
+    from { opacity: 0; transform: translateY(calc(100% + 8px)) translateY(-6px); }
+    to   { opacity: 1; transform: translateY(calc(100% + 8px)) translateY(0); }
+  }
 }
 
 /* Page containers */

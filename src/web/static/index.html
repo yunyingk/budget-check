@@ -159,23 +159,26 @@
               <code class="target-id">{{ t.id }}</code>
             </div>
             <div class="step-list">
-              <div v-for="(s, si) in t.steps" :key="si" class="step-item" :class="s.action ? 'step-action' : (s.when ? 'step-condition' : '')">
+              <div v-for="(s, si) in t.steps" :key="si" class="step-item"
+                   :class="[s.action ? 'step-action' : (s.when ? 'step-condition' : ''), { 'step-hovered': hoveredStep === s }]"
+                   @mouseenter="hoveredStep = s"
+                   @mouseleave="hoveredStep = null">
                 <div class="step-num">{{ si + 1 }}</div>
                 <div class="step-body">
                   <div class="step-icon" v-html="s.action ? '&#9881;' : (s.when ? '&#128260;' : '&#10067;')"></div>
                   <div class="step-main">
                     <div class="step-desc">{{ s.description }}</div>
-                    <div v-if="s.action" class="step-line step-action">
-                      action: <code class="has-tip" :title="stepTooltip(s)">{{ s.action }}</code>
-                    </div>
+                    <div v-if="s.action" class="step-line step-action">action: <code>{{ s.action }}</code></div>
                     <div v-if="s.when" class="step-line step-when">
                       when: <code>{{ s.when }}</code>
-                      <span v-if="s.then" class="step-then-inline">
-                        → <code class="has-tip" :title="stepTooltip(s)">{{ s.then }}</code>
-                      </span>
+                      <span v-if="s.then" class="step-then-inline">→ <code>{{ s.then }}</code></span>
                     </div>
                     <div v-if="s.reason" class="step-line step-reason">reason: {{ s.reason }}</div>
                   </div>
+                </div>
+                <!-- Detail panel on hover -->
+                <div v-if="hoveredStep === s && stepDetail(s)" class="step-detail-panel">
+                  <div class="step-detail-text" v-html="stepDetail(s).replace(/\n/g, '<br>')"></div>
                 </div>
               </div>
             </div>
