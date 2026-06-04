@@ -23,7 +23,7 @@ func LoadConfig(path string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		cfg.BaseDir = filepath.Dir(path)
+		cfg.BaseDir = filepath.Dir(resolveAbs(path))
 		return cfg, nil
 	}
 
@@ -40,11 +40,20 @@ func LoadConfig(path string) (*Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			cfg.BaseDir = filepath.Dir(p)
+			cfg.BaseDir = filepath.Dir(resolveAbs(p))
 			return cfg, nil
 		}
 	}
 	return nil, fmt.Errorf("未找到配置文件，已搜索: %v", searchPaths)
+}
+
+// resolveAbs 将路径转为绝对路径，失败则返回原路径
+func resolveAbs(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
 }
 
 func parseConfig(data []byte) (*Config, error) {

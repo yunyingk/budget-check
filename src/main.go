@@ -12,18 +12,21 @@ import (
 )
 
 func main() {
-	// 确保工作目录在 exe 所在目录，Windows 服务模式下工作目录默认是 System32
-	if exePath, err := os.Executable(); err == nil {
-		if dir := filepath.Dir(exePath); dir != "" {
-			os.Chdir(dir)
-		}
-	}
-
 	configPath := flag.String("config", "config.yaml", "配置文件路径")
 	syncNow := flag.Bool("sync", false, "手动同步一次后退出")
 	install := flag.Bool("install", false, "注册为 Windows 服务")
 	uninstall := flag.Bool("uninstall", false, "卸载 Windows 服务")
 	flag.Parse()
+
+	// Windows 服务模式下工作目录默认是 System32，需要切到 exe 所在目录
+	// 普通模式（命令行运行）不需要 chdir，否则会导致相对路径失效
+	if *install || *uninstall {
+		if exePath, err := os.Executable(); err == nil {
+			if dir := filepath.Dir(exePath); dir != "" {
+				os.Chdir(dir)
+			}
+		}
+	}
 
 	if *install {
 		handleInstall()
