@@ -77,6 +77,9 @@ func Register(mux *http.ServeMux, deps Deps) {
 		})
 	}
 
+	// Prometheus metrics 端点（不需要认证）
+	mux.Handle("/metrics", handleMetrics())
+
 	// Webhooks：按配置动态注册，每个 webhook 一个路由
 	for key := range cfg.Webhooks {
 		webhookKey := key // 闭包捕获

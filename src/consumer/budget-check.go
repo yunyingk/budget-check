@@ -3,6 +3,7 @@ package consumer
 import (
 	"budget/src/budget"
 	"budget/src/ekb"
+	"budget/src/metrics"
 	"budget/src/rules"
 	"budget/src/types"
 	"encoding/json"
@@ -61,21 +62,32 @@ func (c *Checker) GetHistory() []HistoryItem {
 func (c *Checker) Evaluate(task types.Task) (string, string) {
 	log.Printf("[Consumer] 开始处理: taskID=%s code=%s", task.ID, task.Code)
 
+	start := time.Now()
+	defer func() {
+		metrics.CheckDuration.WithLabelValues(task.WebhookKey).Observe(time.Since(start).Seconds())
+	}()
+
 	form, err := c.fetchFlowData(task.Code)
 	if err != nil {
 		log.Printf("[Consumer] 获取单据失败: %v", err)
+		metrics.ChecksTotal.WithLabelValues(task.WebhookKey, "error").Inc()
 		return "refuse", fmt.Sprintf("系统错误：获取单据失败: %v", err)
 	}
 	if form == nil {
 		log.Printf("[Consumer] 单据 %s 未找到", task.Code)
+		metrics.ChecksTotal.WithLabelValues(task.WebhookKey, "error").Inc()
 		return "refuse", "系统错误：单据未找到"
 	}
 
 	engine := c.Engines[task.WebhookKey]
 	if engine == nil {
+		metrics.ChecksTotal.WithLabelValues(task.WebhookKey, "error").Inc()
 		return "refuse", fmt.Sprintf("规则引擎未配置: webhook=%s", task.WebhookKey)
 	}
-	return engine.Evaluate(form)
+
+	action, comment := engine.Evaluate(form)
+	metrics.ChecksTotal.WithLabelValues(task.WebhookKey, action).Inc()
+	return action, comment
 }
 
 func (c *Checker) fetchFlowData(code string) (map[string]interface{}, error) {

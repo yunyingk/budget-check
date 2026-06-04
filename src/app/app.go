@@ -5,6 +5,7 @@ import (
 	"budget/src/config"
 	"budget/src/consumer"
 	"budget/src/ekb"
+	"budget/src/metrics"
 	"budget/src/queue"
 	rotatelog "budget/src/log"
 	"budget/src/rules"
@@ -118,7 +119,11 @@ func (a *App) Sync() {
 	defer a.StoreMu.Unlock()
 	start := time.Now()
 	budget.Sync(a.Store, a.Client, a.SyncCfg)
-	a.LastSyncDuration.Store(int64(time.Since(start)))
+	duration := time.Since(start)
+	a.LastSyncDuration.Store(int64(duration))
+	metrics.SyncDuration.Observe(duration.Seconds())
+	metrics.SyncTotal.WithLabelValues("success").Inc()
+	metrics.LastSyncTimestamp.Set(float64(time.Now().Unix()))
 }
 
 // Run 启动后台同步循环、消费循环和 HTTP Server（阻塞）

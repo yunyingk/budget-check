@@ -4,6 +4,7 @@ import (
 	"budget/src/budget"
 	"budget/src/config"
 	"budget/src/consumer"
+	"budget/src/metrics"
 	"budget/src/types"
 	"encoding/json"
 	"fmt"
@@ -11,12 +12,18 @@ import (
 	"runtime"
 	"sync/atomic"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(data)
+}
+
+func handleMetrics() http.Handler {
+	return promhttp.Handler()
 }
 
 func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64) {
@@ -45,6 +52,10 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 	if lastSyncDuration != nil {
 		syncDurationSec = float64(lastSyncDuration.Load()) / float64(time.Second)
 	}
+
+	// 更新队列指标
+	metrics.QueueSize.Set(float64(queueSize))
+	metrics.QueuePending.Set(float64(queuePending))
 
 	writeJSON(w, 200, map[string]interface{}{
 		"status":           "ok",
