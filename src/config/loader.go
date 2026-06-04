@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/expr-lang/expr"
 	"gopkg.in/yaml.v3"
 )
 
@@ -54,5 +55,63 @@ func LoadRules(path string) (*types.RulesConfig, error) {
 	if err := json.Unmarshal(data, &rules); err != nil {
 		return nil, fmt.Errorf("解析规则文件失败: %w", err)
 	}
+
+	// 验证规则语法
+	if err := ValidateRules(&rules); err != nil {
+		return nil, fmt.Errorf("规则验证失败: %w", err)
+	}
+
 	return &rules, nil
+}
+
+// ValidateRules 验证规则配置的语法
+func ValidateRules(cfg *types.RulesConfig) error {
+	for _, target := range cfg.Targets {
+		if err := validateTarget(target); err != nil {
+			return fmt.Errorf("target %s: %w", target.Name, err)
+		}
+	}
+	return nil
+}
+
+// validateTarget 验证单个 target 的规则
+func validateTarget(target types.RuleTarget) error {
+	seenSplitDetail := false
+
+	for i, step := range target.Steps {
+		// 验证 when 表达式语法
+		if step.When != "" {
+			if _, err := expr.Compile(step.When, expr.AllowUndefinedVariables()); err != nil {
+				return fmt.Errorf("step %d: when 表达式语法错误 (%q): %w", i+1, step.When, err)
+			}
+		}
+
+		// 验证 step 顺序
+		if step.Action == "split_detail" {
+			seenSplitDetail = true
+		}
+		if step.Action == "split_apportion" {
+			if !seenSplitDetail {
+				return fmt.Errorf("step %d: split_apportion 必须在 split_detail 之后", i+1)
+			}
+		}
+
+		// 验证 then 值
+		if step.Then != "" && step.Then != "pass" && step.Then != "refuse" {
+			return fmt.Errorf("step %d: then 值无效 (%q)，必须是 pass 或 refuse", i+1, step.Then)
+		}
+
+		// 验证 action 值
+		validActions := map[string]bool{
+			"":                    true,
+			"split_detail":        true,
+			"split_apportion":     true,
+			"match_info_to_budget": true,
+		}
+		if !validActions[step.Action] {
+			return fmt.Errorf("step %d: action 值无效 (%q)", i+1, step.Action)
+		}
+	}
+
+	return nil
 }
