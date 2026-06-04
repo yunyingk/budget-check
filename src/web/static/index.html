@@ -160,7 +160,7 @@
             </div>
             <div class="step-list">
               <div v-for="(s, si) in t.steps" :key="si" class="step-item"
-                   :class="[s.action ? 'step-action' : (s.when ? 'step-condition' : ''), { 'step-hovered': hoveredStep === s }]"
+                   :class="s.action ? 'step-action' : (s.when ? 'step-condition' : '')"
                    @mouseenter="hoveredStep = s"
                    @mouseleave="hoveredStep = null">
                 <div class="step-num">{{ si + 1 }}</div>
