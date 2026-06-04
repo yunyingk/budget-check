@@ -19,7 +19,12 @@ func LoadConfig(path string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		return parseConfig(data)
+		cfg, err := parseConfig(data)
+		if err != nil {
+			return nil, err
+		}
+		cfg.BaseDir = filepath.Dir(path)
+		return cfg, nil
 	}
 
 	// 默认路径：优先 config/config.yaml，其次 config.yaml
@@ -31,7 +36,12 @@ func LoadConfig(path string) (*Config, error) {
 		data, err := os.ReadFile(p)
 		if err == nil {
 			fmt.Printf("[Config] 使用配置文件: %s\n", p)
-			return parseConfig(data)
+			cfg, err := parseConfig(data)
+			if err != nil {
+				return nil, err
+			}
+			cfg.BaseDir = filepath.Dir(p)
+			return cfg, nil
 		}
 	}
 	return nil, fmt.Errorf("未找到配置文件，已搜索: %v", searchPaths)
@@ -62,6 +72,21 @@ func LoadRules(path string) (*types.RulesConfig, error) {
 	}
 
 	return &rules, nil
+}
+
+// SaveRules 验证并保存规则配置到 JSON 文件
+func SaveRules(path string, cfg *types.RulesConfig) error {
+	if err := ValidateRules(cfg); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("序列化规则失败: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("写入规则文件失败: %w", err)
+	}
+	return nil
 }
 
 // ValidateRules 验证规则配置的语法

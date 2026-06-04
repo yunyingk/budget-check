@@ -50,6 +50,13 @@ func (c *Checker) AddHistory(code, action, comment string) {
 	}
 }
 
+// UpdateEngine 更新指定 webhook 的规则引擎（线程安全）
+func (c *Checker) UpdateEngine(key string, engine *rules.Engine) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Engines[key] = engine
+}
+
 func (c *Checker) GetHistory() []HistoryItem {
 	c.mu.Lock()
 	defer c.mu.Unlock()

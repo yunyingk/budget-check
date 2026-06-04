@@ -27,6 +27,7 @@ type Deps struct {
 	Version          string
 	OnSync           func()                        // 手动同步回调
 	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig
+	SaveRulesFunc    func(string, *types.RulesConfig) error // 保存规则+重编译引擎
 	StartTime        time.Time                     // 服务启动时间
 	LastSyncDuration *atomic.Int64                 // 上次同步耗时（纳秒）
 }

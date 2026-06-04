@@ -413,6 +413,140 @@ header .version {
   }
 }
 
+/* Rules Editor */
+.webhook-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.webhook-title-row .webhook-title { margin-bottom: 0; }
+
+.btn-sm { padding: 5px 12px; font-size: 12px; }
+
+.editor { margin-top: 8px; }
+
+.editor-actions { display: flex; gap: 8px; }
+
+.editor-msg {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.msg-ok { background: var(--success-bg); color: var(--success); }
+.msg-err { background: var(--danger-bg); color: var(--danger); }
+
+.edit-target {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  overflow: hidden;
+}
+
+.edit-target-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: #fafafa;
+  border-bottom: 1px solid var(--border);
+}
+.edit-target-fields {
+  display: flex;
+  gap: 12px;
+  flex: 1;
+  align-items: center;
+}
+.edit-target-fields label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.input-sm {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  outline: none;
+}
+.input-sm:focus { border-color: var(--primary); }
+.input-id { width: 160px; font-family: monospace; font-size: 12px; }
+.input-expr { width: 200px; font-family: monospace; font-size: 12px; }
+
+.edit-steps { padding: 10px 14px; }
+
+.edit-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px dashed #f0f0f0;
+}
+.edit-step:last-of-type { border-bottom: none; }
+
+.edit-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.edit-step-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+}
+
+.edit-step-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.btn-icon {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.btn-icon:hover:not(:disabled) { background: var(--bg); }
+.btn-icon:disabled { opacity: 0.3; cursor: not-allowed; }
+.btn-icon.btn-danger:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+
+.btn-add-step {
+  margin-top: 8px;
+  width: 100%;
+  text-align: center;
+  border-style: dashed;
+}
+
+.btn-add-target {
+  width: 100%;
+  text-align: center;
+  border-style: dashed;
+  margin-top: 4px;
+}
+
 /* Card border colors */
 .card-status { border-left: 4px solid var(--primary); }
 .card-resource { border-left: 4px solid var(--success); }
