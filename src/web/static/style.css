@@ -253,20 +253,22 @@ header .version {
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .rules-webhook-section {
   background: var(--card-bg);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 20px;
+  padding: 24px;
+  border-left: 4px solid var(--primary);
+  animation: cardFadeIn 0.4s ease-out both;
 }
 
 .webhook-title {
   font-size: 16px;
   font-weight: 600;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -276,15 +278,20 @@ header .version {
   color: var(--text-secondary);
   font-weight: normal;
   background: var(--bg);
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 4px;
+  letter-spacing: 0.3px;
 }
 
 .rule-target-card {
   border: 1px solid var(--border);
-  border-radius: 8px;
-  margin-bottom: 12px;
+  border-radius: 10px;
+  margin-bottom: 16px;
   overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+.rule-target-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 .rule-target-card:last-child {
   margin-bottom: 0;
@@ -294,35 +301,51 @@ header .version {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #fafafa;
+  padding: 14px 20px;
+  background: linear-gradient(135deg, #f6f8fc 0%, #f0f4ff 100%);
   border-bottom: 1px solid var(--border);
 }
 .target-name {
   font-weight: 600;
   font-size: 14px;
+  color: var(--text);
 }
 .target-id {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
   background: #fff;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 4px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  border: 1px solid #eee;
 }
 
-/* Step List */
+/* Step List — vertical timeline */
 .step-list {
-  padding: 12px 16px;
+  padding: 16px 20px 12px 24px;
 }
 
 .step-item {
   display: flex;
-  gap: 12px;
-  padding: 10px 0;
-  border-bottom: 1px dashed #f0f0f0;
+  gap: 14px;
+  padding: 12px 0 12px 0;
+  position: relative;
+  transition: background 0.15s ease;
+  border-radius: 6px;
 }
-.step-item:last-child {
-  border-bottom: none;
+.step-item:hover {
+  background: #fafbff;
+}
+
+/* Timeline vertical line */
+.step-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 11px;
+  top: 38px;
+  bottom: -12px;
+  width: 2px;
+  background: linear-gradient(to bottom, #d9dce6 0%, #e8eaef 100%);
 }
 
 .step-num {
@@ -331,76 +354,92 @@ header .version {
   border-radius: 50%;
   background: var(--primary);
   color: #fff;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
+  box-shadow: 0 2px 6px rgba(22, 119, 255, 0.25);
+  position: relative;
+  z-index: 1;
 }
 
 .step-body {
   display: flex;
   gap: 10px;
   flex: 1;
+  min-width: 0;
 }
 
 .step-icon {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
-  width: 24px;
+  width: 22px;
   text-align: center;
+  margin-top: 2px;
 }
 
 .step-main {
   flex: 1;
+  min-width: 0;
 }
 
 .step-desc {
-  font-weight: 500;
-  font-size: 14px;
-  margin-bottom: 4px;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+  color: var(--text);
 }
 
 .step-line {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
-  font-family: monospace;
-  margin-top: 2px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 .step-line code {
-  background: #f5f5f5;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 12px;
+  background: #f0f2f5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-family: inherit;
+  border: 1px solid #e8e8e8;
 }
 
 .step-action .step-icon { color: var(--primary); }
+.step-action .step-num { background: var(--primary); }
 .step-condition .step-icon { color: var(--warn); }
+.step-condition .step-num { background: var(--warn); box-shadow: 0 2px 6px rgba(250, 173, 20, 0.25); }
 
 .step-then-inline { margin-left: 2px; }
 
 /* Step detail panel — below the step item */
 .step-detail-panel {
   margin-top: 8px;
-  margin-left: 36px;
-  background: #1e1e2e;
+  margin-left: 38px;
+  background: linear-gradient(135deg, #1a1b2e 0%, #1e2035 100%);
   color: #cdd6f4;
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.8;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255,255,255,0.06);
-  animation: detailSlideIn 0.2s ease-out;
+  font-size: 12.5px;
+  line-height: 1.85;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255,255,255,0.04);
+  animation: detailSlideIn 0.22s ease-out;
+  border: 1px solid rgba(255,255,255,0.06);
 }
 .step-detail-text {
   white-space: pre-line;
 }
 
 @keyframes detailSlideIn {
-  from { opacity: 0; transform: translateY(-6px); }
+  from { opacity: 0; transform: translateY(-8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
