@@ -268,7 +268,7 @@ func (e *Engine) getNodeDisplayName(dimCode string) string {
 	}
 	// 预算树找不到，调用合思 API
 	if e.client != nil {
-		if dim, err := e.client.GetDimension(dimCode); err == nil && dim.Name != "" {
+		if dim, err := e.client.GetProjectDimension(dimCode); err == nil && dim.Name != "" {
 			return fmt.Sprintf("%s(%s)", dim.Name, dimCode)
 		}
 	}
@@ -307,7 +307,19 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 
 		var matched *budget.Node
 		if first.DimType == "PROJECT" {
-			id, found := e.client.FindAncestorInTree(fieldValue, set, 5)
+			id, found := e.client.FindProjectAncestorInTree(fieldValue, set, 5)
+			if !found {
+				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
+			}
+			matched = currentNodes[id]
+		} else if first.DimType == "DEPART" {
+			id, found := e.client.FindDepartmentAncestorInTree(fieldValue, set, 5)
+			if !found {
+				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
+			}
+			matched = currentNodes[id]
+		} else if first.DimType == "FEE_TYPE" {
+			id, found := e.client.FindFeeTypeAncestorInTree(fieldValue, set, 5)
 			if !found {
 				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
 			}

@@ -35,6 +35,13 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 	}
 	log.Printf("[Sync] Token OK")
 
+	// 同步费用类型（全量拉取存内存）
+	if err := client.SyncFeeTypes(); err != nil {
+		log.Printf("[Sync] 同步费用类型失败: %v", err)
+	} else {
+		log.Printf("[Sync] 费用类型同步完成")
+	}
+
 	store.Clear()
 	store.ResetSyncProgress()
 

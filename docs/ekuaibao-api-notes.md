@@ -70,6 +70,53 @@ Token 有效期 120 分钟，代码中缓存 110 分钟后自动刷新。
 
 ---
 
+### 6. 维度类型（dimensionType）
+
+预算节点的 `content` 数组中每个元素都有 `dimensionType` 字段，表示维度种类：
+
+| dimensionType | 说明 | 匹配逻辑 | API |
+|--------------|------|---------|-----|
+| `PROJECT` | 档案（项目、自定义档案等） | 向上找祖先（最多 5 层） | `/api/openapi/v1/dimensions/getDimensionById` |
+| `DEPART` | 部门 | 向上找祖先（最多 5 层） | `/api/openapi/v1/departments/$idOrCode` |
+| `FEE_TYPE` | 消费类型（费用类型） | 向上找祖先（最多 5 层） | `/api/openapi/v1/feeTypes`（全量缓存） |
+| `STAFF` | 员工 | 精确匹配 | 无 |
+
+**节点结构示例:**
+```json
+{
+  "id": "20220419-1",
+  "code": "维度-1",
+  "name": "项目2",
+  "content": [
+    {
+      "dimensionType": "PROJECT",
+      "dimensionId": "项目",
+      "mustLeaf": true,
+      "contentId": "ID_3yrzERx0Rf0"
+    }
+  ],
+  "children": [...]
+}
+```
+
+**dimensionIds（预算包维度配置）:**
+```json
+"dimensionIds": {
+    "项目": "PROJECT",
+    "submitterId": "STAFF",
+    "E_system_rank": "PROJECT",
+    "expenseDepartment": "DEPART"
+}
+```
+
+**匹配算法:**
+- `PROJECT`：调用 `FindProjectAncestorInTree` 向上找祖先
+- `DEPART`：调用 `FindDepartmentAncestorInTree` 向上找祖先
+- `FEE_TYPE`：调用 `FindFeeTypeAncestorInTree` 向上找祖先（从内存缓存查找，随预算包同步刷新）
+- `STAFF`：精确匹配 `contentId`
+
+---
+
 ## 已验证的数据规模
 
 | 预算包 | 子节点数 | 同步耗时 (10 workers) |

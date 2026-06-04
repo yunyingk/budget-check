@@ -4,6 +4,7 @@ import (
 	"budget/src/budget"
 	"budget/src/config"
 	"budget/src/consumer"
+	"budget/src/ekb"
 	"budget/src/metrics"
 	"budget/src/types"
 	"encoding/json"
@@ -26,7 +27,7 @@ func handleMetrics() http.Handler {
 	return promhttp.Handler()
 }
 
-func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64) {
+func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64, client *ekb.Client) {
 	lastSync := store.UpdatedAt()
 	lastSyncStr := ""
 	if !lastSync.IsZero() {
@@ -60,11 +61,18 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 	// 获取 Prometheus 指标
 	promMetrics := metrics.GetMetrics()
 
+	// 获取费用类型数量
+	feeTypeCount := 0
+	if client != nil {
+		feeTypeCount = client.FeeTypeCount()
+	}
+
 	writeJSON(w, 200, map[string]interface{}{
 		"status":           "ok",
 		"version":          version,
 		"uptime":           uptimeStr,
 		"total_leaf_count": store.TotalLeafCount(),
+		"fee_type_count":   feeTypeCount,
 		"is_syncing":       syncing(),
 		"last_sync_at":     lastSyncStr,
 		"sync_duration_sec": syncDurationSec,

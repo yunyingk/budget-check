@@ -197,6 +197,7 @@ func (a *App) Run() error {
 		SaveRulesFunc:    a.SaveRules,
 		StartTime:        a.StartTime,
 		LastSyncDuration: &a.LastSyncDuration,
+		Client:           a.Client,
 	})
 
 	addr := fmt.Sprintf("0.0.0.0:%d", a.Config.Server.Port)
