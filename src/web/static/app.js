@@ -1,137 +1,177 @@
-const { createApp, ref, onMounted, onUnmounted } = Vue
+const { createApp, ref, computed, reactive, onMounted, onUnmounted } = Vue
+
+// Resource health standard values (hardcoded in frontend)
+const MEMORY_STD = 30      // MB
+const GOROUTINE_STD = 20   // count
+
+// Gradient color stops for health ring
+const COLOR_STOPS = [
+  { pct: 0,   r: 82,  g: 196, b: 26  },  // bright green
+  { pct: 25,  r: 115, g: 209, b: 61  },  // medium green
+  { pct: 50,  r: 250, g: 173, b: 20  },  // yellow
+  { pct: 65,  r: 255, g: 122, b: 69  },  // orange
+  { pct: 80,  r: 255, g: 77,  b: 79  },  // red
+  { pct: 90,  r: 207, g: 19,  b: 34  },  // dark red
+  { pct: 100, r: 255, g: 77,  b: 79  },  // red
+]
+
+/**
+ * Interpolate ring color based on percentage.
+ * 0-50%: green range, 50-90%: yellow→orange→red range, 90-100%: red range, >100%: purple
+ */
+function ringColor(pct) {
+  if (pct > 100) return '#722ed1'
+  for (let i = 0; i < COLOR_STOPS.length - 1; i++) {
+    const a = COLOR_STOPS[i], b = COLOR_STOPS[i + 1]
+    if (pct >= a.pct && pct <= b.pct) {
+      const t = (pct - a.pct) / (b.pct - a.pct)
+      return `rgb(${Math.round(a.r + (b.r - a.r) * t)},${Math.round(a.g + (b.g - a.g) * t)},${Math.round(a.b + (b.b - a.b) * t)})`
+    }
+  }
+  return '#722ed1'
+}
+
+const CIRCUMFERENCE = 2 * Math.PI * 36  // r=36 → 226.19
 
 const app = createApp({
   setup() {
-    // 状态
+    // Page navigation
     const currentPage = ref('overview')
-    const version = ref('-')
+    function switchPage(p) { currentPage.value = p }
+
+    // Overview data
+    const version = ref('')
     const totalLeafCount = ref(0)
+    const feeTypeCount = ref(0)
     const isSyncing = ref(false)
-    const lastSyncAt = ref('未同步')
+    const lastSyncAt = ref('')
     const intervalMinutes = ref(0)
-    const queueSize = ref(0)
     const queuePending = ref(0)
+    const queueSize = ref(0)
     const memoryMB = ref(0)
     const goroutines = ref(0)
-    const feeTypeCount = ref(0)
     const targets = ref([])
+    const metrics = ref({ checks: {}, syncs: { success: 0, error: 0 }, last_sync_timestamp: 0 })
     const history = ref([])
-    const webhooks = ref([])
-    const rules = ref({})
+
+    // Sync
     const syncing = ref(false)
     const syncMsg = ref('')
-    const metrics = ref({})
 
-    // 编辑器状态
-    const editMode = ref(null)      // 当前编辑的 webhook key
-    const editDraft = ref(null)     // 编辑中的规则副本
-    const editMsg = ref('')         // 编辑器反馈消息
-    const editSaving = ref(false)   // 保存中
+    // Rules
+    const webhooks = ref([])
+    const rules = ref({})
+
+    // Editor
+    const editMode = ref(null)
+    const editDraft = ref(null)
+    const editSaving = ref(false)
+    const editMsg = ref('')
+
+    // Ring computations
+    const memoryPct = computed(() => Math.round((memoryMB.value / MEMORY_STD) * 100))
+    const goroutinePct = computed(() => Math.round((goroutines.value / GOROUTINE_STD) * 100))
+    const memoryColor = computed(() => ringColor(memoryPct.value))
+    const goroutineColor = computed(() => ringColor(goroutinePct.value))
 
     let refreshTimer = null
 
-    function checkAuth(r) {
-      if (r.status === 401) {
-        window.location.href = '/login'
-        return false
+    // Format ISO timestamp to HH:MM:SS
+    function formatTimestamp(ts) {
+      if (!ts) return '-'
+      if (typeof ts === 'number') {
+        // unix seconds
+        const d = new Date(ts * 1000)
+        return d.toLocaleTimeString('zh-CN', { hour12: false })
       }
-      return true
+      const d = new Date(ts)
+      if (isNaN(d)) return ts
+      return d.toLocaleTimeString('zh-CN', { hour12: false })
     }
 
-    function switchPage(page) {
-      currentPage.value = page
-      if (page === 'rules') loadRules()
-      if (page === 'webhooks') loadWebhooks()
+    function formatSyncTime(s) {
+      if (!s) return '-'
+      const d = new Date(s)
+      if (isNaN(d)) return s
+      return d.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
     }
 
+    // Fetch status
     async function refresh() {
       try {
         const r = await fetch('/api/status')
-        if (!checkAuth(r)) return
         const d = await r.json()
-        if (!d) return
-        version.value = d.version || '-'
+        version.value = d.version || ''
         totalLeafCount.value = d.total_leaf_count || 0
-        isSyncing.value = d.is_syncing
-        lastSyncAt.value = d.last_sync_at || '未同步'
+        feeTypeCount.value = d.fee_type_count || 0
+        isSyncing.value = !!d.is_syncing
+        lastSyncAt.value = formatSyncTime(d.last_sync_at)
         intervalMinutes.value = d.interval_minutes || 0
-        queueSize.value = d.queue?.capacity || 0
-        queuePending.value = d.queue?.pending || 0
         memoryMB.value = d.memory_mb || 0
         goroutines.value = d.goroutines || 0
-        feeTypeCount.value = d.fee_type_count || 0
+        queuePending.value = d.queue?.pending || 0
+        queueSize.value = d.queue?.capacity || 0
         targets.value = d.targets || []
-        metrics.value = d.metrics || {}
-      } catch (e) {
-        console.warn('status fetch failed', e)
-      }
-      try {
-        const r = await fetch('/api/history')
-        if (!checkAuth(r)) return
-        const d = await r.json()
-        if (d) history.value = d
-      } catch (e) {
-        console.warn('history fetch failed', e)
-      }
+        if (d.metrics) metrics.value = d.metrics
+      } catch (e) { /* ignore */ }
     }
 
+    // Fetch history
+    async function refreshHistory() {
+      try {
+        const r = await fetch('/api/history')
+        history.value = await r.json()
+      } catch (e) { /* ignore */ }
+    }
+
+    // Fetch webhook configs
     async function loadWebhooks() {
       try {
         const r = await fetch('/api/webhooks')
-        if (!checkAuth(r)) return
-        const list = await r.json()
-        webhooks.value = list || []
-      } catch (e) {
-        console.warn('webhooks fetch failed', e)
-      }
+        webhooks.value = await r.json()
+      } catch (e) { webhooks.value = [] }
     }
 
-    async function loadRules() {
-      await loadWebhooks()
+    // Fetch rules for each webhook
+    async function loadAllRules() {
       for (const wh of webhooks.value) {
         try {
           const r = await fetch('/api/rules/' + wh.key)
-          if (!checkAuth(r)) return
-          const cfg = await r.json()
-          rules.value[wh.key] = cfg
-        } catch (e) {
-          console.warn('rules fetch failed', wh.key, e)
-          rules.value[wh.key] = null
-        }
+          if (r.ok) {
+            const data = await r.json()
+            rules.value[wh.key] = data
+          }
+        } catch (e) { /* skip */ }
       }
+      // Force reactivity
+      rules.value = { ...rules.value }
     }
 
+    // Manual sync
     async function doSync() {
-      const p = prompt('输入同步密码')
-      if (p === null) return
       syncing.value = true
-      syncMsg.value = '同步中...'
+      syncMsg.value = ''
       try {
-        let url = '/api/sync'
-        if (p) url += '?password=' + encodeURIComponent(p)
-        const r = await fetch(url, { method: 'POST' })
-        if (r.status === 401) { window.location.href = '/login'; return }
+        const r = await fetch('/api/sync', { method: 'POST' })
         const d = await r.json()
-        syncMsg.value = d.message || JSON.stringify(d)
-        refresh()
+        syncMsg.value = d.ok ? '同步完成' : ('失败: ' + (d.error || '未知错误'))
+        await refresh()
       } catch (e) {
-        syncMsg.value = '失败: ' + e
+        syncMsg.value = '请求失败: ' + e.message
       } finally {
         syncing.value = false
+        setTimeout(() => { syncMsg.value = '' }, 5000)
       }
     }
 
-    function formatTimestamp(ts) {
-      if (!ts || ts === 0) return '未同步'
-      return new Date(ts * 1000).toLocaleString()
-    }
-
-    // ========== 规则编辑器 ==========
-
+    // Editor functions
     function startEdit(key) {
       editMode.value = key
-      editDraft.value = JSON.parse(JSON.stringify(rules.value[key]))
       editMsg.value = ''
+      const r = rules.value[key]
+      if (r) {
+        editDraft.value = JSON.parse(JSON.stringify(r))
+      }
     }
 
     function cancelEdit() {
@@ -141,62 +181,72 @@ const app = createApp({
     }
 
     function addTarget() {
+      if (!editDraft.value) return
+      if (!editDraft.value.targets) editDraft.value.targets = []
       editDraft.value.targets.push({
-        id: '',
-        name: '新预算包',
-        steps: [{ description: '按费用明细拆分', action: 'split_detail' }]
+        id: '', name: '', when: '',
+        steps: [],
       })
     }
 
-    function removeTarget(ti) {
-      editDraft.value.targets.splice(ti, 1)
+    function removeTarget(idx) {
+      editDraft.value.targets.splice(idx, 1)
     }
 
-    function addStep(ti) {
-      editDraft.value.targets[ti].steps.push({ description: '' })
+    function addStep(targetIdx) {
+      editDraft.value.targets[targetIdx].steps.push({
+        action: '', when: '', then: '', reason: '', description: '',
+      })
     }
 
-    function removeStep(ti, si) {
-      editDraft.value.targets[ti].steps.splice(si, 1)
+    function removeStep(targetIdx, stepIdx) {
+      editDraft.value.targets[targetIdx].steps.splice(stepIdx, 1)
     }
 
-    function moveStep(ti, si, dir) {
-      const steps = editDraft.value.targets[ti].steps
-      const ni = si + dir
-      if (ni < 0 || ni >= steps.length) return
-      const tmp = steps[si]
-      steps[si] = steps[ni]
-      steps[ni] = tmp
+    function moveStep(targetIdx, stepIdx, dir) {
+      const steps = editDraft.value.targets[targetIdx].steps
+      const newIdx = stepIdx + dir
+      if (newIdx < 0 || newIdx >= steps.length) return
+      const tmp = steps[stepIdx]
+      steps[stepIdx] = steps[newIdx]
+      steps[newIdx] = tmp
     }
 
     async function saveRules(key) {
+      if (!editDraft.value) return
       editSaving.value = true
       editMsg.value = ''
       try {
         const r = await fetch('/api/rules/' + key, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(editDraft.value)
+          body: JSON.stringify(editDraft.value),
         })
-        if (!checkAuth(r)) return
         const d = await r.json()
-        if (r.ok) {
+        if (r.ok && d.status === 'ok') {
+          editMsg.value = '✓ 保存成功！重启后生效。'
           rules.value[key] = JSON.parse(JSON.stringify(editDraft.value))
-          editMsg.value = '✓ 保存成功，规则引擎已热重载'
-          setTimeout(() => { editMsg.value = '' }, 3000)
+          await refresh()
         } else {
-          editMsg.value = '✗ ' + (d.error || '保存失败')
+          editMsg.value = '保存失败: ' + (d.error || '未知错误')
         }
       } catch (e) {
-        editMsg.value = '✗ 网络错误: ' + e
+        editMsg.value = '请求失败: ' + e.message
       } finally {
         editSaving.value = false
       }
     }
 
-    onMounted(() => {
-      refresh()
-      refreshTimer = setInterval(refresh, 3000)
+    // Lifecycle
+    onMounted(async () => {
+      await refresh()
+      await refreshHistory()
+      await loadWebhooks()
+      await loadAllRules()
+      refreshTimer = setInterval(() => {
+        refresh()
+        refreshHistory()
+      }, 3000)
     })
 
     onUnmounted(() => {
@@ -204,40 +254,24 @@ const app = createApp({
     })
 
     return {
-      currentPage,
-      version,
-      totalLeafCount,
-      isSyncing,
-      lastSyncAt,
-      intervalMinutes,
-      queueSize,
-      queuePending,
-      memoryMB,
-      goroutines,
-      feeTypeCount,
-      targets,
-      history,
-      webhooks,
-      rules,
-      syncing,
-      syncMsg,
-      metrics,
-      switchPage,
-      doSync,
+      // Page
+      currentPage, switchPage,
+      // Overview
+      version, totalLeafCount, feeTypeCount, isSyncing, lastSyncAt, intervalMinutes,
+      queuePending, queueSize, memoryMB, goroutines, targets, metrics, history,
+      // Sync
+      syncing, syncMsg, doSync,
+      // Rules
+      webhooks, rules,
+      // Editor
+      editMode, editDraft, editSaving, editMsg,
+      startEdit, cancelEdit, addTarget, removeTarget,
+      addStep, removeStep, moveStep, saveRules,
+      // Ring
+      memoryPct, goroutinePct, memoryColor, goroutineColor,
+      MEMORY_STD, GOROUTINE_STD, CIRCUMFERENCE,
+      // Helpers
       formatTimestamp,
-      // 编辑器
-      editMode,
-      editDraft,
-      editMsg,
-      editSaving,
-      startEdit,
-      cancelEdit,
-      addTarget,
-      removeTarget,
-      addStep,
-      removeStep,
-      moveStep,
-      saveRules
     }
   }
 })

@@ -37,10 +37,48 @@
       </section>
 
       <section class="card card-resource">
-        <h2>资源占用</h2>
-        <div class="kv-list">
-          <div class="kv"><span class="k">内存</span><span class="v">{{ memoryMB }} MB</span></div>
-          <div class="kv"><span class="k">协程数</span><span class="v">{{ goroutines }}</span></div>
+        <h2>资源健康度</h2>
+        <div class="ring-container">
+          <!-- Memory Ring -->
+          <div class="ring-item">
+            <div class="ring-tooltip">
+              {{ memoryMB }} MB / {{ MEMORY_STD }} MB = {{ memoryPct }}%
+            </div>
+            <svg class="ring-svg" :class="{ 'ring-pulse': memoryPct > 90 }" viewBox="0 0 80 80">
+              <circle class="ring-track" cx="40" cy="40" r="36" />
+              <!-- Glow layer -->
+              <circle class="ring-glow" cx="40" cy="40" r="36"
+                :stroke="memoryColor"
+                stroke-dasharray="226.19"
+                :stroke-dashoffset="226.19 - (226.19 * Math.min(memoryPct, 100) / 100)" />
+              <!-- Main stroke -->
+              <circle class="ring-fill" cx="40" cy="40" r="36"
+                :stroke="memoryColor"
+                stroke-dasharray="226.19"
+                :stroke-dashoffset="226.19 - (226.19 * Math.min(memoryPct, 100) / 100)" />
+            </svg>
+            <div class="ring-value">{{ memoryMB }} <small>MB</small></div>
+          </div>
+          <!-- Goroutine Ring -->
+          <div class="ring-item">
+            <div class="ring-tooltip">
+              {{ goroutines }} / {{ GOROUTINE_STD }} = {{ goroutinePct }}%
+            </div>
+            <svg class="ring-svg" :class="{ 'ring-pulse': goroutinePct > 90 }" viewBox="0 0 80 80">
+              <circle class="ring-track" cx="40" cy="40" r="36" />
+              <!-- Glow layer -->
+              <circle class="ring-glow" cx="40" cy="40" r="36"
+                :stroke="goroutineColor"
+                stroke-dasharray="226.19"
+                :stroke-dashoffset="226.19 - (226.19 * Math.min(goroutinePct, 100) / 100)" />
+              <!-- Main stroke -->
+              <circle class="ring-fill" cx="40" cy="40" r="36"
+                :stroke="goroutineColor"
+                stroke-dasharray="226.19"
+                :stroke-dashoffset="226.19 - (226.19 * Math.min(goroutinePct, 100) / 100)" />
+            </svg>
+            <div class="ring-value">{{ goroutines }} <small>个</small></div>
+          </div>
         </div>
       </section>
 

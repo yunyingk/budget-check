@@ -16,6 +16,7 @@
   --info-bg: #e6f4ff;
   --radius: 10px;
   --shadow: 0 2px 8px rgba(0,0,0,0.06);
+  --ring-size: 92px;
 }
 
 *{margin:0;padding:0;box-sizing:border-box}
@@ -568,3 +569,205 @@ header .version {
 .card-actions { border-left: 4px solid var(--text-secondary); }
 .card-metrics { border-left: 4px solid var(--danger); }
 .card-sync-stats { border-left: 4px solid var(--success); }
+
+/* ===== Card Entrance Animations ===== */
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.overview-page .card:nth-child(1) { animation: cardFadeIn 0.45s ease-out both; animation-delay: 0.00s; }
+.overview-page .card:nth-child(2) { animation: cardFadeIn 0.45s ease-out both; animation-delay: 0.06s; }
+.overview-page .card:nth-child(3) { animation: cardFadeIn 0.45s ease-out both; animation-delay: 0.12s; }
+.overview-page .card:nth-child(4) { animation: cardFadeIn 0.45s ease-out both; animation-delay: 0.18s; }
+.overview-page .card:nth-child(5) { animation: cardFadeIn 0.45s ease-out both; animation-delay: 0.24s; }
+.overview-page .card:nth-child(6) { animation: cardFadeIn 0.45s ease-out both; animation-delay: 0.30s; }
+
+/* ===== Health Rings ===== */
+.ring-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 52px;
+  padding: 8px 0 4px;
+}
+
+.ring-item {
+  position: relative;
+  width: var(--ring-size);
+  height: auto;
+  cursor: default;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.ring-svg {
+  width: 100%;
+  height: var(--ring-size);
+  transform: rotate(-90deg);
+  overflow: visible;
+  filter: drop-shadow(0 0 3px rgba(0, 0, 0, 0.05));
+}
+
+.ring-track {
+  fill: none;
+  stroke: #f0f0f0;
+  stroke-width: 6;
+}
+
+/* Glow layer — wider, blurred, semi-transparent */
+.ring-glow {
+  fill: none;
+  stroke-width: 12;
+  stroke-linecap: round;
+  opacity: 0.25;
+  filter: blur(4px);
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+              stroke 0.5s ease;
+}
+
+/* Main stroke — crisp on top */
+.ring-fill {
+  fill: none;
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1),
+              stroke 0.5s ease;
+}
+
+/* Value text below ring */
+.ring-value {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text);
+  text-align: center;
+  line-height: 1;
+}
+.ring-value small {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+/* Tooltip */
+.ring-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 10;
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.ring-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: rgba(0, 0, 0, 0.82);
+}
+
+.ring-item:hover .ring-tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ===== Pulse Animation ===== */
+@keyframes pulse {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 2px rgba(0,0,0,0.05)); }
+  50%      { transform: scale(1.05); filter: drop-shadow(0 0 8px rgba(255, 77, 79, 0.4)); }
+}
+
+.ring-pulse {
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+/* ===== Glow shimmer for overloaded state ===== */
+@keyframes glowShimmer {
+  0%   { opacity: 0.2; }
+  50%  { opacity: 0.45; }
+  100% { opacity: 0.2; }
+}
+
+.ring-pulse .ring-glow {
+  animation: glowShimmer 1.5s ease-in-out infinite;
+}
+
+/* ===== Card Hover Lift ===== */
+.card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+}
+
+/* ===== Button Hover Transition ===== */
+.btn {
+  transition: all 0.2s ease;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+/* ===== Tag Fade ===== */
+.tag {
+  transition: opacity 0.2s ease;
+}
+
+/* ===== KV list item hover ===== */
+.kv {
+  transition: background 0.15s ease;
+  padding: 7px 4px;
+  border-radius: 4px;
+}
+.kv:hover {
+  background: #fafafa;
+}
+
+/* ===== Nav tab transition ===== */
+.nav-tab {
+  transition: all 0.25s ease;
+}
+
+/* ===== Data table row hover ===== */
+.data-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+/* ===== Status dot pulse ===== */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.status-dot.running {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.2);
+  animation: dotPulse 2s ease-in-out infinite;
+}
+.status-dot.stopped {
+  background: var(--danger);
+}
+
+@keyframes dotPulse {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.2); }
+  50%      { box-shadow: 0 0 0 6px rgba(82, 196, 26, 0.08); }
+}
