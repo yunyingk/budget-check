@@ -113,11 +113,11 @@ func Register(mux *http.ServeMux, deps Deps) {
 
 	// Config API
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
-		if cfg.Sync.Password == "" {
+		if cfg.Web.AdminPassword == "" {
 			http.Error(w, "disabled", 404)
 			return
 		}
-		if r.URL.Query().Get("password") != cfg.Sync.Password {
+		if r.URL.Query().Get("password") != cfg.Web.AdminPassword {
 			writeJSON(w, 403, map[string]string{"error": "密码错误"})
 			return
 		}
@@ -130,7 +130,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 			http.Error(w, "method not allowed", 405)
 			return
 		}
-		if cfg.Sync.Password != "" && r.URL.Query().Get("password") != cfg.Sync.Password {
+		if cfg.Web.AdminPassword != "" && r.URL.Query().Get("password") != cfg.Web.AdminPassword {
 			writeJSON(w, 403, map[string]string{"error": "密码错误"})
 			return
 		}

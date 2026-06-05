@@ -27,10 +27,9 @@ type WebhookEntry struct {
 
 // SyncConfig 预算同步配置
 type SyncConfig struct {
-	IntervalMinutes int    `yaml:"interval_minutes"`
-	Workers         int    `yaml:"workers"`
-	Password        string `yaml:"password"`
-	QueueSize       int    `yaml:"queue_size"`
+	IntervalMinutes int `yaml:"interval_minutes"`
+	Workers         int `yaml:"workers"`
+	QueueSize       int `yaml:"queue_size"`
 }
 
 // LogConfig 日志配置
