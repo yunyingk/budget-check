@@ -121,7 +121,7 @@ func handleRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*t
 }
 
 // handleSaveRules 保存规则配置 PUT /api/rules/{webhookKey}
-func handleSaveRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*types.RulesConfig, saveFunc func(string, *types.RulesConfig) error) {
+func handleSaveRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[string]*types.RulesConfig, saveFunc func(string, *types.RulesConfig) error, adminPassword string) {
 	if r.Method != http.MethodPut {
 		writeJSON(w, 405, map[string]string{"error": "方法不允许"})
 		return
@@ -137,19 +137,29 @@ func handleSaveRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[strin
 		return
 	}
 
-	var cfg types.RulesConfig
-	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+	// 解析请求体
+	var req struct {
+		Password string           `json:"password"`
+		Config   types.RulesConfig `json:"config"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "JSON 解析失败: " + err.Error()})
 		return
 	}
 
-	if err := saveFunc(key, &cfg); err != nil {
+	// 验证管理员密码
+	if adminPassword != "" && req.Password != adminPassword {
+		writeJSON(w, 403, map[string]string{"error": "管理员密码错误"})
+		return
+	}
+
+	if err := saveFunc(key, &req.Config); err != nil {
 		writeJSON(w, 400, map[string]string{"error": err.Error()})
 		return
 	}
 
 	// 更新内存中的配置
-	rulesCfgs[key] = &cfg
+	rulesCfgs[key] = &req.Config
 	writeJSON(w, 200, map[string]string{"status": "ok"})
 }
 
@@ -176,14 +186,15 @@ func handleWebhooks(w http.ResponseWriter, r *http.Request, cfg *config.Config) 
 func bToMB(b uint64) uint64 { return b / 1024 / 1024 }
 
 // handleCreateWebhook 创建新 webhook POST /api/webhooks
-func handleCreateWebhook(w http.ResponseWriter, r *http.Request, createFunc func(string, string) error) {
+func handleCreateWebhook(w http.ResponseWriter, r *http.Request, createFunc func(string, string) error, adminPassword string) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, 405, map[string]string{"error": "方法不允许"})
 		return
 	}
 	var req struct {
-		Key     string `json:"key"`
-		SignKey string `json:"sign_key"`
+		Key      string `json:"key"`
+		SignKey  string `json:"sign_key"`
+		Password string `json:"password"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeJSON(w, 400, map[string]string{"error": "JSON 解析失败"})
@@ -197,6 +208,13 @@ func handleCreateWebhook(w http.ResponseWriter, r *http.Request, createFunc func
 		writeJSON(w, 400, map[string]string{"error": "sign_key 不能为空"})
 		return
 	}
+
+	// 验证管理员密码
+	if adminPassword != "" && req.Password != adminPassword {
+		writeJSON(w, 403, map[string]string{"error": "管理员密码错误"})
+		return
+	}
+
 	if createFunc == nil {
 		writeJSON(w, 500, map[string]string{"error": "创建功能未启用"})
 		return

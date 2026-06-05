@@ -67,7 +67,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 		// 规则配置 API
 		mux.HandleFunc("/api/rules/", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPut {
-				handleSaveRules(w, r, deps.RulesCfgs, deps.SaveRulesFunc)
+				handleSaveRules(w, r, deps.RulesCfgs, deps.SaveRulesFunc, cfg.Web.Password)
 			} else {
 				handleRules(w, r, deps.RulesCfgs)
 			}
@@ -76,7 +76,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 		// Webhooks 配置 API（GET 列表 / POST 创建）
 		mux.HandleFunc("/api/webhooks", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method == http.MethodPost {
-				handleCreateWebhook(w, r, deps.CreateWebhookFunc)
+				handleCreateWebhook(w, r, deps.CreateWebhookFunc, cfg.Web.Password)
 			} else {
 				handleWebhooks(w, r, cfg)
 			}

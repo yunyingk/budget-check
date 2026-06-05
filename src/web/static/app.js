@@ -70,9 +70,16 @@ const app = createApp({
 
     // Create Webhook modal
     const showCreateModal = ref(false)
-    const createForm = reactive({ key: '', sign_key: '' })
+    const createForm = reactive({ key: '', sign_key: '', password: '' })
     const createSaving = ref(false)
     const createMsg = ref('')
+
+    // Password verification modal
+    const showPasswordModal = ref(false)
+    const verifyPassword = ref('')
+    const verifySaving = ref(false)
+    const verifyMsg = ref('')
+    let pendingSaveKey = null
 
     // Ring computations
     const memoryPct = computed(() => Math.round((memoryMB.value / MEMORY_STD) * 100))
@@ -263,26 +270,48 @@ const app = createApp({
 
     async function saveRules(key) {
       if (!editDraft.value) return
-      editSaving.value = true
-      editMsg.value = ''
+      // 弹出密码验证弹窗
+      pendingSaveKey = key
+      verifyPassword.value = ''
+      verifyMsg.value = ''
+      showPasswordModal.value = true
+    }
+
+    async function confirmPassword() {
+      if (!verifyPassword.value.trim()) {
+        verifyMsg.value = '请输入管理员密码'
+        return
+      }
+      if (!pendingSaveKey || !editDraft.value) return
+
+      verifySaving.value = true
+      verifyMsg.value = ''
       try {
-        const r = await fetch('/api/rules/' + key, {
+        const r = await fetch('/api/rules/' + pendingSaveKey, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(editDraft.value),
+          body: JSON.stringify({
+            password: verifyPassword.value.trim(),
+            config: editDraft.value,
+          }),
         })
         const d = await r.json()
         if (r.ok && d.status === 'ok') {
+          verifyMsg.value = '✓ 保存成功！'
           editMsg.value = '✓ 保存成功！重启后生效。'
-          rules.value[key] = JSON.parse(JSON.stringify(editDraft.value))
+          rules.value[pendingSaveKey] = JSON.parse(JSON.stringify(editDraft.value))
           await refresh()
+          setTimeout(() => {
+            showPasswordModal.value = false
+            verifyMsg.value = ''
+          }, 800)
         } else {
-          editMsg.value = '保存失败: ' + (d.error || '未知错误')
+          verifyMsg.value = d.error || '保存失败'
         }
       } catch (e) {
-        editMsg.value = '请求失败: ' + e.message
+        verifyMsg.value = '请求失败: ' + e.message
       } finally {
-        editSaving.value = false
+        verifySaving.value = false
       }
     }
 
@@ -290,13 +319,18 @@ const app = createApp({
     async function createWebhook() {
       if (!createForm.key.trim()) { createMsg.value = '请输入 Webhook Key'; return }
       if (!createForm.sign_key.trim()) { createMsg.value = '请输入 Sign Key'; return }
+      if (!createForm.password.trim()) { createMsg.value = '请输入管理员密码'; return }
       createSaving.value = true
       createMsg.value = ''
       try {
         const r = await fetch('/api/webhooks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ key: createForm.key.trim(), sign_key: createForm.sign_key.trim() }),
+          body: JSON.stringify({
+            key: createForm.key.trim(),
+            sign_key: createForm.sign_key.trim(),
+            password: createForm.password.trim(),
+          }),
         })
         const d = await r.json()
         if (r.ok && d.status === 'ok') {
@@ -308,6 +342,7 @@ const app = createApp({
             createMsg.value = ''
             createForm.key = ''
             createForm.sign_key = ''
+            createForm.password = ''
           }, 800)
         } else {
           createMsg.value = d.error || '创建失败'
@@ -506,6 +541,8 @@ const app = createApp({
       addStep, removeStep, moveStep, saveRules,
       // Create Webhook
       showCreateModal, createForm, createSaving, createMsg, createWebhook,
+      // Password verification
+      showPasswordModal, verifyPassword, verifySaving, verifyMsg, confirmPassword,
       // Ring
       memoryPct, goroutinePct, memoryColor, goroutineColor,
       MEMORY_STD, GOROUTINE_STD, CIRCUMFERENCE,
