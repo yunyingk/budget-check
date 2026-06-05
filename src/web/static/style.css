@@ -606,8 +606,7 @@ header .version {
   .grid {
     grid-template-columns: repeat(2, 1fr);
   }
-  .card-history,
-  .card-actions {
+  .card-history {
     grid-column: 1 / -1;
   }
 }
@@ -615,9 +614,6 @@ header .version {
 @media (min-width: 1100px) {
   .grid {
     grid-template-columns: repeat(3, 1fr);
-  }
-  .card-actions {
-    grid-column: 1 / -1;
   }
   .card-history {
     grid-column: 1 / -1;
