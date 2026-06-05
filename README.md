@@ -48,7 +48,6 @@ webhooks:
 sync:
   interval_minutes: 60                   # 自动同步间隔（分钟）
   workers: 10                            # 同步并发数
-  password: "root"                       # 手动同步密码（为空则不需要密码）
   queue_size: 100                        # 任务队列大小
 
 # 日志
@@ -59,7 +58,14 @@ logging:
 # Web 管理页面
 web:
   enabled: true
-  password: "root"
+  password: "root"                       # 登录密码
+  admin_password: "admin123"             # 管理员密码：同步、规则保存、新建 webhook、查看配置
+
+# 维度字段名映射（用于错误提示）
+dimension_names:
+  E_system_costcenter: "成本中心"
+  u_费用类型档案: "费用类型"
+  项目: "项目"
 ```
 
 ### rules/budget-check.json
@@ -126,7 +132,7 @@ web:
 
 1. 取当前层节点的 `dimensionId`（维度字段名）作为表单字段名
 2. 用该字段的值在当前层节点中查找
-3. 找不到则向上查找祖先节点（支持自定义档案的父子级关系）
+3. PROJECT、DEPART、FEE_TYPE 找不到时向上查找祖先节点
 4. 匹配成功进入下一层，直到叶子节点
 
 ## 规则示例
@@ -177,11 +183,11 @@ web:
 | 路径 | 说明 | 认证 |
 |------|------|------|
 | `POST /api/webhook/{name}` | 合思 Webhook 入口 | 无 |
-| `GET /api/status` | 服务状态 | 无 |
+| `GET /api/status` | 服务状态 | 登录（Web 启用时） |
 | `GET /api/rules/{webhookKey}` | 规则配置查询 | 登录 |
 | `GET /api/webhooks` | Webhook 列表 | 登录 |
 | `GET /api/history` | 最近处理记录 | 登录 |
-| `POST /api/sync?password=xxx` | 手动触发同步 | password |
+| `POST /api/sync?password=xxx` | 手动触发同步 | admin_password |
 | `GET /` | 管理页面 | 登录 |
 
 ## 部署

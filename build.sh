@@ -13,16 +13,26 @@ echo "构建版本: $VERSION"
 # 确保 dist 目录存在
 mkdir -p dist
 
-# Windows 交叉编译
+# 多平台交叉编译
 echo "→ Windows amd64..."
-GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check.exe ./src
+GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-windows-amd64.exe ./src
+cp dist/budget-check-windows-amd64.exe dist/budget-check.exe
 
-# macOS 本地编译
+echo "→ Windows arm64..."
+GOOS=windows GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-windows-arm64.exe ./src
+
+echo "→ macOS arm64..."
+GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-darwin-arm64 ./src
+
 echo "→ macOS amd64..."
-go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-mac ./src
+GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-darwin-amd64 ./src
+cp dist/budget-check-darwin-arm64 dist/budget-check-mac
+
+echo "→ Linux amd64..."
+GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-linux-amd64 ./src
 
 # 同步配置文件到 dist
 cp config.yaml dist/config.yaml
 
 echo "构建完成:"
-ls -lh dist/budget-check.exe dist/budget-check-mac
+ls -lh dist/budget-check-windows-amd64.exe dist/budget-check-windows-arm64.exe dist/budget-check-darwin-arm64 dist/budget-check-darwin-amd64 dist/budget-check-linux-amd64 dist/budget-check.exe dist/budget-check-mac

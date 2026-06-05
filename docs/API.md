@@ -12,7 +12,7 @@
 
 ### 1. 健康检查 `GET /api/status`
 
-无需认证，用于探活。
+Web 管理页面启用时需要登录；未启用 Web 管理页面时无需认证，用于探活。
 
 **响应示例:**
 ```json
@@ -32,7 +32,7 @@
 
 触发一次全量预算数据同步。同步在后台异步执行，接口立即返回。
 
-**认证:** query 参数 `password`（配置文件中 `sync.password` 为空时无需密码）
+**认证:** query 参数 `password`，校验 `web.admin_password`。`web.admin_password` 为空时无需密码。
 
 **请求示例:**
 ```
@@ -64,9 +64,9 @@ POST http://host:8000/api/sync?password=root
 
 ### 3. 查看配置 `GET /api/config`
 
-返回当前运行的完整配置内容。**必须设置密码才生效**，密码为空时返回 404。
+返回当前运行的完整配置内容。**必须设置 `web.admin_password` 才生效**，密码为空时返回 404。
 
-**认证:** query 参数 `password`（与手动同步共用同一密码）
+**认证:** query 参数 `password`，校验 `web.admin_password`。
 
 **请求示例:**
 ```
@@ -269,9 +269,9 @@ GET http://host:8000/api/history
 
 | 接口 | 认证方式 | 密码为空时 |
 |------|----------|-----------|
-| `/api/status` | 无 | 正常工作 |
-| `/api/sync` | query `password` | 无需密码即可调用 |
-| `/api/config` | query `password` | 接口禁用（返回 404） |
+| `/api/status` | Web 登录（Web 启用时） | 未启用 Web 时无需认证 |
+| `/api/sync` | query `password`，校验 `web.admin_password` | 无需密码即可调用 |
+| `/api/config` | query `password`，校验 `web.admin_password` | 接口禁用（返回 404） |
 | `/api/webhook/{name}` | 无 | 正常工作 |
 | `/api/rules/{key}` | Web 登录 | 需要登录 |
 | `/api/webhooks` | Web 登录 | 需要登录 |

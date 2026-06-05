@@ -21,7 +21,9 @@
 ```
 C:\BudgetProject\
 ├── budget-check.exe    # 主程序
-└── config.yaml         # 配置文件
+├── config.yaml         # 配置文件
+└── rules\              # 规则文件目录
+    └── budget-check.json
 ```
 
 ### 2. 编辑配置
@@ -33,11 +35,19 @@ C:\BudgetProject\
 ekuaibao:
   app_key: "你的 AppKey"
   app_secret: "你的 AppSecret"
-  sign_key: "你的 SignKey"
 
 # HTTP 服务端口（默认 8000，按需修改）
 server:
   port: 8000
+
+# Webhook 签名密钥在 webhooks 下配置
+webhooks:
+  budget-check:
+    sign_key: "你的 SignKey"
+    rules: "rules/budget-check.json"
+    targets:
+      - id: "预算包ID"
+        name: "预算包名称"
 ```
 
 ### 3. 安装服务
@@ -170,12 +180,13 @@ logging:
 
 ```
 启动
+  ├─ 启动 HTTP 服务（接收校验请求）
   ↓
-首次全量同步（从合思 API 拉取预算包）
+后台首次全量同步（从合思 API 拉取预算包）
   ↓
-启动 HTTP 服务（接收校验请求）
+首次同步完成后开始消费队列
   ↓
-定时同步（每 N 分钟增量更新）
+定时同步（每 N 分钟重新拉取）
 ```
 
 ### 校验逻辑分支

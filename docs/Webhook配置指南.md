@@ -159,7 +159,7 @@ webhooks:
 sync:
   interval_minutes: 60
   workers: 10
-  password: "root"
+  queue_size: 100
 
 logging:
   level: "info"
@@ -168,6 +168,7 @@ logging:
 web:
   enabled: true
   password: "root"
+  admin_password: "admin123"
 ```
 
 ---

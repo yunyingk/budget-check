@@ -83,7 +83,15 @@ type ThenAction = "pass" | "refuse" | "commit";
      - 如果 fieldValue 为空，返回 `"缺少{first.DimId}"`
      - 构建当前层节点集合 `set`
      - 如果 `first.DimType == "PROJECT"`：
-       - `id, found = client.FindAncestorInTree(fieldValue, set, 5)`
+       - `id, found = client.FindProjectAncestorInTree(fieldValue, set, 5)`
+       - 如果 !found，返回 `"{first.DimId} {fieldValue} 不在预算包内"`
+       - `matched = currentNodes[id]`
+     - 如果 `first.DimType == "DEPART"`：
+       - `id, found = client.FindDepartmentAncestorInTree(fieldValue, set, 5)`
+       - 如果 !found，返回 `"{first.DimId} {fieldValue} 不在预算包内"`
+       - `matched = currentNodes[id]`
+     - 如果 `first.DimType == "FEE_TYPE"`：
+       - `id, found = client.FindFeeTypeAncestorInTree(fieldValue, set, 5)`
        - 如果 !found，返回 `"{first.DimId} {fieldValue} 不在预算包内"`
        - `matched = currentNodes[id]`
      - 否则：
@@ -99,7 +107,7 @@ type ThenAction = "pass" | "refuse" | "commit";
 ### when 表达式
 
 - **语法**: [expr-lang](https://github.com/expr-lang/expr)
-- **输入变量**: `unit.Fields` 中的所有字段
+- **输入变量**: 原始 `form` 字段 + 当前 `unit.Fields` 字段；同名时 `unit.Fields` 覆盖 `form`
 - **返回类型**: `bool`
 - **编译时**: 启动时编译为 `vm.Program`
 - **运行时**: `expr.Run(program, vars)`
@@ -215,7 +223,17 @@ function matchToBudget(unit, tree):
     set = keys(currentNodes)
 
     if first.DimType == "PROJECT":
-      id, found = client.FindAncestorInTree(fieldValue, set, 5)
+      id, found = client.FindProjectAncestorInTree(fieldValue, set, 5)
+      if not found:
+        return "{first.DimId} {fieldValue} 不在预算包内"
+      matched = currentNodes[id]
+    else if first.DimType == "DEPART":
+      id, found = client.FindDepartmentAncestorInTree(fieldValue, set, 5)
+      if not found:
+        return "{first.DimId} {fieldValue} 不在预算包内"
+      matched = currentNodes[id]
+    else if first.DimType == "FEE_TYPE":
+      id, found = client.FindFeeTypeAncestorInTree(fieldValue, set, 5)
       if not found:
         return "{first.DimId} {fieldValue} 不在预算包内"
       matched = currentNodes[id]

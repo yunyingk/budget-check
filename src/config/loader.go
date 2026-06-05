@@ -148,15 +148,15 @@ func validateTarget(target types.RuleTarget) error {
 		}
 
 		// 验证 then 值
-		if step.Then != "" && step.Then != "pass" && step.Then != "refuse" {
-			return fmt.Errorf("step %d: then 值无效 (%q)，必须是 pass 或 refuse", i+1, step.Then)
+		if step.Then != "" && step.Then != "pass" && step.Then != "refuse" && step.Then != "commit" {
+			return fmt.Errorf("step %d: then 值无效 (%q)，必须是 pass、refuse 或 commit", i+1, step.Then)
 		}
 
 		// 验证 action 值
 		validActions := map[string]bool{
-			"":                    true,
-			"split_detail":        true,
-			"split_apportion":     true,
+			"":                     true,
+			"split_detail":         true,
+			"split_apportion":      true,
 			"match_info_to_budget": true,
 		}
 		if !validActions[step.Action] {

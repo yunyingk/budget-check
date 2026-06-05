@@ -1,6 +1,6 @@
 package main
 
 var (
-	version   = "1.2.2"
+	version   = "1.2.3"
 	buildTime = "unknown"
 )

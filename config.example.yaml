@@ -27,8 +27,6 @@ webhooks:
 sync:
   interval_minutes: 60  # 每隔多少分钟自动同步一次预算数据
   workers: 10           # 同步并发数
-  password: "root"      # 手动触发同步的密码，为空则不需要密码
-                        # 请求示例: GET/POST /api/sync?password=root
   queue_size: 100       # 校验任务队列最大长度
 
 # 日志配置
@@ -41,4 +39,11 @@ logging:
 # 启用后访问 / 查看服务状态和预算信息
 web:
   enabled: true           # 设为 true 启用管理页面
-  password: ""            # 访问密码，为空则不需要密码
+  password: ""            # 登录密码，为空则不需要密码
+  admin_password: ""      # 管理员密码，保护同步、规则保存、新建 webhook、查看配置等敏感操作
+
+# 维度字段名映射：内部字段 ID → 中文名称，用于规则引擎错误提示
+dimension_names:
+  E_system_costcenter: "成本中心"
+  u_费用类型档案: "费用类型"
+  项目: "项目"
