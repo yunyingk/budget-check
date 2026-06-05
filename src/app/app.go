@@ -8,6 +8,7 @@ import (
 	"budget/src/metrics"
 	"budget/src/queue"
 	rotatelog "budget/src/log"
+	"net"
 	"budget/src/rules"
 	"budget/src/types"
 	"budget/src/web"
@@ -267,7 +268,27 @@ func (a *App) Run() error {
 		Client:           a.Client,
 	})
 
-	addr := fmt.Sprintf("0.0.0.0:%d", a.Config.Server.Port)
-	log.Printf("服务启动: %s", addr)
-	return http.ListenAndServe(addr, mux)
+	// 尝试启动服务，端口被占用时自动+1
+	port := a.Config.Server.Port
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		addr := fmt.Sprintf("0.0.0.0:%d", port)
+		log.Printf("服务启动: %s", addr)
+
+		// 先尝试监听端口
+		listener, err := net.Listen("tcp", addr)
+		if err != nil {
+			if i < maxRetries-1 {
+				log.Printf("[WARN] 端口 %d 被占用，尝试端口 %d", port, port+1)
+				port++
+				continue
+			}
+			return fmt.Errorf("无法启动服务，已尝试端口 %d-%d: %w", a.Config.Server.Port, port, err)
+		}
+
+		// 监听成功，启动 HTTP 服务
+		return http.Serve(listener, mux)
+	}
+
+	return fmt.Errorf("无法启动服务，已尝试 %d 次", maxRetries)
 }
