@@ -532,6 +532,10 @@ const app = createApp({
 
     // Lifecycle
     onMounted(async () => {
+      // 强制关闭所有弹窗（防止缓存导致的闪现）
+      showCreateModal.value = false
+      showPasswordModal.value = false
+
       await refresh()
       await refreshHistory()
       await loadWebhooks()
