@@ -169,6 +169,17 @@ const app = createApp({
       }
       // Force reactivity
       rules.value = { ...rules.value }
+
+      // Default: select first webhook and expand all targets
+      if (webhooks.value.length > 0 && !selectedWebhook.value) {
+        selectedWebhook.value = webhooks.value[0].key
+      }
+      // Expand all targets by default
+      if (selectedWebhook.value && rules.value[selectedWebhook.value]?.targets) {
+        for (const t of rules.value[selectedWebhook.value].targets) {
+          expandedTargets.value[t.id] = true
+        }
+      }
     }
 
     // Manual sync
@@ -332,6 +343,60 @@ const app = createApp({
              '如果后续还有 split_detail 或 split_apportion，仍会继续执行拆分。',
     }
     const hoveredStep = ref(null)
+
+    // Rules page new states
+    const selectedWebhook = ref(null)
+    const expandedTargets = ref({})
+    const showJsonPreview = ref(false)
+    const showEditJsonPreview = ref(false)
+
+    // Drag and drop states
+    const dragSourceIndex = ref(null)
+    const dragOverIndex = ref(null)
+
+    // 切换 target 展开/折叠
+    function toggleTarget(targetId) {
+      expandedTargets.value[targetId] = !expandedTargets.value[targetId]
+    }
+
+    // 切换 JSON 预览
+    function toggleJsonPreview() {
+      showJsonPreview.value = !showJsonPreview.value
+    }
+
+    // 拖拽相关函数
+    function onDragStart(event, targetIdx, stepIdx) {
+      dragSourceIndex.value = { targetIdx, stepIdx }
+      event.dataTransfer.effectAllowed = 'move'
+      event.target.classList.add('dragging')
+    }
+
+    function onDragOver(event, targetIdx, stepIdx) {
+      event.preventDefault()
+      dragOverIndex.value = `${targetIdx}-${stepIdx}`
+    }
+
+    function onDrop(event, targetIdx, stepIdx) {
+      event.preventDefault()
+      if (!dragSourceIndex.value) return
+      if (dragSourceIndex.value.targetIdx !== targetIdx) return // 不允许跨 target 拖拽
+
+      const srcIdx = dragSourceIndex.value.stepIdx
+      if (srcIdx === stepIdx) return
+
+      const steps = editDraft.value.targets[targetIdx].steps
+      const [moved] = steps.splice(srcIdx, 1)
+      steps.splice(stepIdx, 0, moved)
+
+      dragSourceIndex.value = null
+      dragOverIndex.value = null
+    }
+
+    function onDragEnd(event) {
+      event.target.classList.remove('dragging')
+      dragSourceIndex.value = null
+      dragOverIndex.value = null
+    }
     function stepDetail(s) {
       if (s.action) return STEP_DETAILS[s.action] || ''
       if (s.when) {
@@ -451,6 +516,11 @@ const app = createApp({
       maskKey, copyText,
       // When editor
       parseWhenExpr, updateWhenExpr, onActionChange,
+      // Rules page new features
+      selectedWebhook, expandedTargets, showJsonPreview, showEditJsonPreview,
+      toggleTarget, toggleJsonPreview,
+      // Drag and drop
+      dragSourceIndex, dragOverIndex, onDragStart, onDragOver, onDrop, onDragEnd,
     }
   }
 })

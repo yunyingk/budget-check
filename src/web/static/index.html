@@ -164,134 +164,209 @@
 
     <!-- 规则工作流页面 -->
     <div v-if="currentPage === 'rules'" class="page-rules">
+      <div class="page-header-row">
+        <h2 class="page-title">规则工作流</h2>
+      </div>
+
       <div v-if="webhooks.length === 0" class="empty">未配置 webhook</div>
-      <div v-for="wh in webhooks" :key="wh.key" class="rules-webhook-section">
-        <div class="webhook-title-row">
-          <h3 class="webhook-title">{{ wh.key }}<span class="webhook-meta">{{ wh.rules || ('rules/' + wh.key + '.json') }}</span></h3>
-          <button v-if="editMode !== wh.key" class="btn btn-primary btn-sm" @click="startEdit(wh.key)">编辑</button>
-        </div>
-        <div v-if="!rules[wh.key]" class="loading">加载中...</div>
-        <div v-else-if="!rules[wh.key].targets || rules[wh.key].targets.length === 0" class="empty">未配置规则 target</div>
 
-        <!-- 只读展示 -->
-        <div v-if="editMode !== wh.key && rules[wh.key]">
-          <div v-for="t in rules[wh.key].targets" :key="t.id" class="rule-target-card">
-            <div class="target-header">
-              <span class="target-name">{{ t.name }}</span>
-              <code class="target-id">{{ t.id }}</code>
+      <div class="rules-layout">
+        <!-- 左侧边栏：Webhook 列表 -->
+        <div class="rules-sidebar">
+          <div class="sidebar-header">
+            <span>Webhooks</span>
+          </div>
+          <div class="sidebar-list">
+            <div v-for="wh in webhooks" :key="wh.key"
+                 class="sidebar-item"
+                 :class="{ active: selectedWebhook === wh.key }"
+                 @click="selectedWebhook = wh.key">
+              <span class="sidebar-item-key">{{ wh.key }}</span>
+              <span class="sidebar-item-count">{{ rules[wh.key]?.targets?.length || 0 }}</span>
             </div>
-            <div class="step-list">
-              <div v-for="(s, si) in t.steps" :key="si" class="step-item"
-                   :class="s.action ? 'step-action' : (s.when ? 'step-condition' : '')"
-                   @mouseenter="hoveredStep = s"
-                   @mouseleave="hoveredStep = null">
-                <div class="step-num">{{ si + 1 }}</div>
-                <div class="step-body">
-                  <div class="step-icon" v-html="s.action ? '&#9881;' : (s.when ? '&#128260;' : '&#10067;')"></div>
-                  <div class="step-main">
-                    <div class="step-desc">{{ s.description }}</div>
-                    <div v-if="s.action" class="step-line step-action">action: <code>{{ s.action }}</code></div>
-                    <!-- When 条件：结构化显示 -->
-                    <div v-if="s.when" class="step-line step-when">
-                      <span class="when-preview">
-                        <code class="when-field">{{ parseWhenExpr(s.when).field }}</code>
-                        <span class="when-op">{{ parseWhenExpr(s.when).op }}</span>
-                        <code class="when-value">{{ parseWhenExpr(s.when).value }}</code>
-                      </span>
-                      <span v-if="s.then" class="step-then-inline">→ <code>{{ s.then }}</code></span>
+          </div>
+        </div>
+
+        <!-- 右侧主区域 -->
+        <div class="rules-main">
+          <div v-if="!selectedWebhook" class="rules-empty-select">
+            <svg viewBox="0 0 80 80" fill="none" width="64" height="64">
+              <rect x="8" y="12" width="64" height="56" rx="8" stroke="#d9d9d9" stroke-width="2"/>
+              <path d="M24 32h32M24 44h24" stroke="#e8e8e8" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="56" cy="56" r="12" stroke="#1677ff" stroke-width="2" fill="#e6f4ff"/>
+              <path d="M53 56h6M56 53v6" stroke="#1677ff" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <div class="empty-text">请从左侧选择一个 Webhook</div>
+          </div>
+
+          <div v-else>
+            <div class="webhook-title-row">
+              <h3 class="webhook-title">
+                {{ selectedWebhook }}
+                <span class="webhook-meta">{{ webhooks.find(w => w.key === selectedWebhook)?.rules || ('rules/' + selectedWebhook + '.json') }}</span>
+              </h3>
+              <div class="webhook-actions">
+                <button v-if="editMode !== selectedWebhook" class="btn btn-secondary btn-sm" @click="toggleJsonPreview">
+                  {{ showJsonPreview ? '隐藏 JSON' : '查看 JSON' }}
+                </button>
+                <button v-if="editMode !== selectedWebhook" class="btn btn-primary btn-sm" @click="startEdit(selectedWebhook)">编辑</button>
+                <button v-if="editMode === selectedWebhook" class="btn btn-secondary btn-sm" @click="cancelEdit">取消</button>
+                <button v-if="editMode === selectedWebhook" class="btn btn-primary btn-sm" @click="saveRules(selectedWebhook)" :disabled="editSaving">
+                  {{ editSaving ? '保存中...' : '保存' }}
+                </button>
+              </div>
+            </div>
+
+            <div v-if="editMsg" class="editor-msg" :class="editMsg.startsWith('✓') ? 'msg-ok' : 'msg-err'">{{ editMsg }}</div>
+
+            <!-- JSON 预览面板 -->
+            <div v-if="showJsonPreview && editMode !== selectedWebhook" class="json-preview-panel">
+              <div class="json-preview-header">
+                <span>JSON 预览</span>
+                <button class="btn-icon" @click="showJsonPreview = false">✕</button>
+              </div>
+              <pre class="json-preview-content">{{ JSON.stringify(rules[selectedWebhook], null, 2) }}</pre>
+            </div>
+
+            <div v-if="!rules[selectedWebhook]" class="loading">加载中...</div>
+            <div v-else-if="!rules[selectedWebhook].targets || rules[selectedWebhook].targets.length === 0" class="empty">未配置规则 target</div>
+
+            <!-- 只读展示 -->
+            <div v-if="editMode !== selectedWebhook && rules[selectedWebhook]" class="targets-container">
+              <div v-for="t in rules[selectedWebhook].targets" :key="t.id" class="rule-target-card">
+                <div class="target-header" @click="toggleTarget(t.id)">
+                  <div class="target-header-left">
+                    <span class="target-expand-icon">{{ expandedTargets[t.id] ? '▼' : '▶' }}</span>
+                    <span class="target-name">{{ t.name }}</span>
+                    <code class="target-id">{{ t.id }}</code>
+                  </div>
+                  <span class="target-step-count">{{ t.steps?.length || 0 }} 步骤</span>
+                </div>
+                <div v-if="expandedTargets[t.id]" class="step-list">
+                  <div v-for="(s, si) in t.steps" :key="si" class="step-item"
+                       :class="s.action ? 'step-action' : (s.when ? 'step-condition' : '')"
+                       @mouseenter="hoveredStep = s"
+                       @mouseleave="hoveredStep = null">
+                    <div class="step-num">{{ si + 1 }}</div>
+                    <div class="step-body">
+                      <div class="step-icon" v-html="s.action ? '&#9881;' : (s.when ? '&#128260;' : '&#10067;')"></div>
+                      <div class="step-main">
+                        <div class="step-desc">{{ s.description }}</div>
+                        <div v-if="s.action" class="step-line step-action">
+                          <span class="step-action-badge">{{ s.action }}</span>
+                        </div>
+                        <!-- When 条件：结构化显示 -->
+                        <div v-if="s.when" class="step-line step-when">
+                          <span class="step-condition-badge">条件</span>
+                          <span class="when-preview">
+                            <code class="when-field">{{ parseWhenExpr(s.when).field }}</code>
+                            <span class="when-op">{{ parseWhenExpr(s.when).op }}</span>
+                            <code class="when-value">{{ parseWhenExpr(s.when).value }}</code>
+                          </span>
+                          <span v-if="s.then" class="step-then-inline">→ <span class="tag" :class="s.then === 'pass' ? 'tag-ok' : s.then === 'refuse' ? 'tag-refuse' : 'tag-accept'">{{ s.then }}</span></span>
+                        </div>
+                        <div v-if="s.reason" class="step-line step-reason">
+                          <span class="reason-label">原因:</span> {{ s.reason }}
+                        </div>
+                      </div>
                     </div>
-                    <div v-if="s.reason" class="step-line step-reason">reason: {{ s.reason }}</div>
+                    <!-- Detail panel on hover -->
+                    <div v-if="hoveredStep === s && stepDetail(s)" class="step-detail-panel">
+                      <div class="step-detail-text" v-html="stepDetail(s).replace(/\n/g, '<br>')"></div>
+                    </div>
                   </div>
-                </div>
-                <!-- Detail panel on hover -->
-                <div v-if="hoveredStep === s && stepDetail(s)" class="step-detail-panel">
-                  <div class="step-detail-text" v-html="stepDetail(s).replace(/\n/g, '<br>')"></div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        <!-- 编辑器 -->
-        <div v-if="editMode === wh.key && editDraft" class="editor">
-          <div class="editor-toolbar">
-            <span class="editor-title">编辑规则配置</span>
-            <div class="editor-actions">
-              <button class="btn btn-secondary btn-sm" @click="cancelEdit">取消</button>
-              <button class="btn btn-primary btn-sm" @click="saveRules(wh.key)" :disabled="editSaving">{{ editSaving ? '保存中...' : '保存' }}</button>
-            </div>
-          </div>
-          <div v-if="editMsg" class="editor-msg" :class="editMsg.startsWith('✓') ? 'msg-ok' : 'msg-err'">{{ editMsg }}</div>
-
-          <!-- Targets -->
-          <div v-for="(t, ti) in editDraft.targets" :key="ti" class="edit-target">
-            <div class="edit-target-header">
-              <div class="edit-target-fields">
-                <label>名称 <input v-model="t.name" class="input-sm" placeholder="预算包名称"></label>
-                <label>ID <input v-model="t.id" class="input-sm input-id" placeholder="预算包 ID"></label>
-              </div>
-              <button class="btn-icon btn-danger" @click="removeTarget(ti)" title="删除此 target">✕</button>
-            </div>
-
-            <!-- Steps -->
-            <div class="edit-steps">
-              <div v-for="(s, si) in t.steps" :key="si" class="edit-step">
-                <div class="edit-step-top">
-                  <div class="edit-step-num">{{ si + 1 }}</div>
-                  <input v-model="s.description" class="input-sm input-desc" placeholder="步骤描述" style="flex:1">
-                  <select v-model="s.action" class="input-sm" @change="onActionChange(s)" style="width:140px">
-                    <option value="">条件判断</option>
-                    <option value="split_detail">拆分明细</option>
-                    <option value="split_apportion">拆分分摊</option>
-                    <option value="match_info_to_budget">匹配预算包</option>
-                  </select>
-                  <div class="edit-step-btns" style="flex-direction:row">
-                    <button class="btn-icon" @click="moveStep(ti, si, -1)" :disabled="si === 0" title="上移">↑</button>
-                    <button class="btn-icon" @click="moveStep(ti, si, 1)" :disabled="si === t.steps.length - 1" title="下移">↓</button>
-                    <button class="btn-icon btn-danger" @click="removeStep(ti, si)" title="删除步骤">✕</button>
+            <!-- 编辑器 -->
+            <div v-if="editMode === selectedWebhook && editDraft" class="editor-container">
+              <!-- Targets -->
+              <div v-for="(t, ti) in editDraft.targets" :key="ti" class="edit-target">
+                <div class="edit-target-header">
+                  <div class="edit-target-fields">
+                    <label>名称 <input v-model="t.name" class="input-sm" placeholder="预算包名称"></label>
+                    <label>ID <input v-model="t.id" class="input-sm input-id" placeholder="预算包 ID"></label>
                   </div>
+                  <button class="btn-icon btn-danger" @click="removeTarget(ti)" title="删除此 target">✕</button>
                 </div>
 
-                <!-- 条件判断时显示 when/then 编辑器 -->
-                <div v-if="!s.action" class="edit-step-content">
-                  <!-- When 条件：三段式 [字段] [运算符] [值] -->
-                  <div class="edit-step-row">
-                    <span class="edit-step-label">条件</span>
-                    <div class="when-editor">
-                      <input v-model="s._whenField" class="input-sm input-when-field" placeholder="字段名" @input="updateWhenExpr(s)">
-                      <select v-model="s._whenOp" class="input-sm input-when-op" @change="updateWhenExpr(s)">
-                        <option value="==">等于 (==)</option>
-                        <option value="!=">不等于 (!=)</option>
-                        <option value=">">大于 (>)</option>
-                        <option value="<">小于 (<)</option>
-                        <option value=">=">大于等于 (>=)</option>
-                        <option value="<=">小于等于 (<=)</option>
-                        <option value="contains">包含</option>
-                        <option value="not contains">不包含</option>
-                        <option value="in">在列表中</option>
-                        <option value="not in">不在列表中</option>
+                <!-- Steps -->
+                <div class="edit-steps">
+                  <div v-for="(s, si) in t.steps" :key="si" class="edit-step"
+                       draggable="true"
+                       @dragstart="onDragStart($event, ti, si)"
+                       @dragover.prevent="onDragOver($event, ti, si)"
+                       @drop="onDrop($event, ti, si)"
+                       @dragend="onDragEnd"
+                       :class="{ 'drag-over': dragOverIndex === `${ti}-${si}` }">
+                    <div class="edit-step-top">
+                      <div class="edit-step-drag-handle" title="拖拽排序">⠿</div>
+                      <div class="edit-step-num">{{ si + 1 }}</div>
+                      <input v-model="s.description" class="input-sm input-desc" placeholder="步骤描述" style="flex:1">
+                      <select v-model="s.action" class="input-sm" @change="onActionChange(s)" style="width:140px">
+                        <option value="">条件判断</option>
+                        <option value="split_detail">拆分明细</option>
+                        <option value="split_apportion">拆分分摊</option>
+                        <option value="match_info_to_budget">匹配预算包</option>
                       </select>
-                      <input v-model="s._whenValue" class="input-sm input-when-value" placeholder="值" @input="updateWhenExpr(s)">
+                      <div class="edit-step-btns" style="flex-direction:row">
+                        <button class="btn-icon" @click="moveStep(ti, si, -1)" :disabled="si === 0" title="上移">↑</button>
+                        <button class="btn-icon" @click="moveStep(ti, si, 1)" :disabled="si === t.steps.length - 1" title="下移">↓</button>
+                        <button class="btn-icon btn-danger" @click="removeStep(ti, si)" title="删除步骤">✕</button>
+                      </div>
+                    </div>
+
+                    <!-- 条件判断时显示 when/then 编辑器 -->
+                    <div v-if="!s.action" class="edit-step-content">
+                      <!-- When 条件：三段式 [字段] [运算符] [值] -->
+                      <div class="edit-step-row">
+                        <span class="edit-step-label">条件</span>
+                        <div class="when-editor">
+                          <input v-model="s._whenField" class="input-sm input-when-field" placeholder="字段名" @input="updateWhenExpr(s)">
+                          <select v-model="s._whenOp" class="input-sm input-when-op" @change="updateWhenExpr(s)">
+                            <option value="==">等于 (==)</option>
+                            <option value="!=">不等于 (!=)</option>
+                            <option value=">">大于 (>)</option>
+                            <option value="<">小于 (<)</option>
+                            <option value=">=">大于等于 (>=)</option>
+                            <option value="<=">小于等于 (<=)</option>
+                            <option value="contains">包含</option>
+                            <option value="not contains">不包含</option>
+                            <option value="in">在列表中</option>
+                            <option value="not in">不在列表中</option>
+                          </select>
+                          <input v-model="s._whenValue" class="input-sm input-when-value" placeholder="值" @input="updateWhenExpr(s)">
+                        </div>
+                      </div>
+                      <!-- Then 动作 -->
+                      <div class="edit-step-row">
+                        <span class="edit-step-label">动作</span>
+                        <select v-model="s.then" class="input-sm" style="width:140px">
+                          <option value="">选择动作</option>
+                          <option value="pass">通过 (pass)</option>
+                          <option value="refuse">拒绝 (refuse)</option>
+                          <option value="commit">提交 (commit)</option>
+                        </select>
+                        <input v-if="s.then === 'refuse'" v-model="s.reason" class="input-sm input-reason" placeholder="拒绝原因说明">
+                      </div>
                     </div>
                   </div>
-                  <!-- Then 动作 -->
-                  <div class="edit-step-row">
-                    <span class="edit-step-label">动作</span>
-                    <select v-model="s.then" class="input-sm" style="width:140px">
-                      <option value="">选择动作</option>
-                      <option value="pass">通过 (pass)</option>
-                      <option value="refuse">拒绝 (refuse)</option>
-                      <option value="commit">提交 (commit)</option>
-                    </select>
-                    <input v-if="s.then === 'refuse'" v-model="s.reason" class="input-sm input-reason" placeholder="拒绝原因说明">
-                  </div>
+                  <button class="btn btn-secondary btn-sm btn-add-step" @click="addStep(ti)">+ 添加步骤</button>
                 </div>
               </div>
-              <button class="btn btn-secondary btn-sm btn-add-step" @click="addStep(ti)">+ 添加步骤</button>
+
+              <button class="btn btn-secondary btn-add-target" @click="addTarget()">+ 添加预算包 (Target)</button>
+
+              <!-- 编辑模式下的实时 JSON 预览 -->
+              <div class="json-preview-inline">
+                <div class="json-preview-header" @click="showEditJsonPreview = !showEditJsonPreview">
+                  <span>{{ showEditJsonPreview ? '▼' : '▶' }} 实时 JSON 预览</span>
+                </div>
+                <pre v-if="showEditJsonPreview" class="json-preview-content">{{ JSON.stringify(editDraft, null, 2) }}</pre>
+              </div>
             </div>
           </div>
-
-          <button class="btn btn-secondary btn-add-target" @click="addTarget()">+ 添加预算包 (Target)</button>
         </div>
       </div>
     </div>
