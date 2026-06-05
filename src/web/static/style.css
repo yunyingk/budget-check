@@ -1167,12 +1167,24 @@ header .version {
   width: 130px;
   font-size: 12px;
   background: #fff;
+  font-family: "SF Mono", "Fira Code", monospace;
 }
 
 .input-when-value {
   width: 160px;
   font-family: "SF Mono", "Fira Code", monospace;
   font-size: 12px;
+}
+
+.when-list-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.when-list-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
 }
 
 .input-desc {

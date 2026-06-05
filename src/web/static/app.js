@@ -441,6 +441,21 @@ const app = createApp({
       dragSourceIndex.value = null
       dragOverIndex.value = null
     }
+
+    // 判断是否是列表运算符
+    function isListOp(op) {
+      return op === 'in' || op === 'not in'
+    }
+
+    // 运算符变更时的处理
+    function onWhenOpChange(s) {
+      // 切换到非列表运算符时，清除值中的方括号
+      if (!isListOp(s._whenOp) && s._whenValue) {
+        s._whenValue = s._whenValue.replace(/^\[|\]$/g, '').replace(/^['"]|['"]$/g, '')
+      }
+      updateWhenExpr(s)
+    }
+
     function stepDetail(s) {
       if (s.action) return STEP_DETAILS[s.action] || ''
       if (s.when) {
@@ -488,20 +503,20 @@ const app = createApp({
       }
 
       // 需要引号的值（非数字）
-      const needsQuote = isNaN(value) && !value.startsWith("'") && !value.startsWith('"')
-      const quotedValue = needsQuote ? `'${value}'` : value
+      const needsQuote = (v) => isNaN(v) && !v.startsWith("'") && !v.startsWith('"')
+      const quoteValue = (v) => needsQuote(v) ? `'${v}'` : v
 
       // contains/not contains 特殊格式
       if (op === 'contains') {
-        s.when = `${field} contains ${quotedValue}`
+        s.when = `${field} contains ${quoteValue(value)}`
       } else if (op === 'not contains') {
-        s.when = `${field} not contains ${quotedValue}`
-      } else if (op === 'in') {
-        s.when = `${field} in [${quotedValue}]`
-      } else if (op === 'not in') {
-        s.when = `${field} not in [${quotedValue}]`
+        s.when = `${field} not contains ${quoteValue(value)}`
+      } else if (op === 'in' || op === 'not in') {
+        // 列表格式：值1, 值2, 值3 → ['值1', '值2', '值3']
+        const items = value.split(',').map(v => quoteValue(v.trim())).filter(v => v)
+        s.when = `${field} ${op} [${items.join(', ')}]`
       } else {
-        s.when = `${field} ${op} ${quotedValue}`
+        s.when = `${field} ${op} ${quoteValue(value)}`
       }
     }
 
@@ -561,7 +576,7 @@ const app = createApp({
       formatTimestamp, stepDetail, hoveredStep,
       maskKey, copyText,
       // When editor
-      parseWhenExpr, updateWhenExpr, onActionChange,
+      parseWhenExpr, updateWhenExpr, onActionChange, isListOp, onWhenOpChange,
       // Rules page new features
       selectedWebhook, expandedTargets, showJsonPreview, showEditJsonPreview,
       toggleTarget, toggleJsonPreview,

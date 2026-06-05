@@ -324,19 +324,25 @@
                         <span class="edit-step-label">条件</span>
                         <div class="when-editor">
                           <input v-model="s._whenField" class="input-sm input-when-field" placeholder="字段名" @input="updateWhenExpr(s)">
-                          <select v-model="s._whenOp" class="input-sm input-when-op" @change="updateWhenExpr(s)">
+                          <select v-model="s._whenOp" class="input-sm input-when-op" @change="onWhenOpChange(s)">
                             <option value="==">等于 (==)</option>
                             <option value="!=">不等于 (!=)</option>
-                            <option value=">">大于 (>)</option>
-                            <option value="<">小于 (<)</option>
-                            <option value=">=">大于等于 (>=)</option>
-                            <option value="<=">小于等于 (<=)</option>
+                            <option value=">">大于 (&gt;)</option>
+                            <option value="<">小于 (&lt;)</option>
+                            <option value=">=">大于等于 (&gt;=)</option>
+                            <option value="<=">小于等于 (&lt;=)</option>
                             <option value="contains">包含</option>
                             <option value="not contains">不包含</option>
                             <option value="in">在列表中</option>
                             <option value="not in">不在列表中</option>
                           </select>
-                          <input v-model="s._whenValue" class="input-sm input-when-value" placeholder="值" @input="updateWhenExpr(s)">
+                          <!-- 普通值输入 -->
+                          <input v-if="!isListOp(s._whenOp)" v-model="s._whenValue" class="input-sm input-when-value" placeholder="值" @input="updateWhenExpr(s)">
+                          <!-- 列表值输入（in/not in） -->
+                          <div v-if="isListOp(s._whenOp)" class="when-list-input">
+                            <input v-model="s._whenValue" class="input-sm input-when-value" placeholder="值1, 值2, 值3（逗号分隔）" @input="updateWhenExpr(s)">
+                            <span class="when-list-hint">多个值用逗号分隔</span>
+                          </div>
                         </div>
                       </div>
                       <!-- Then 动作 -->
