@@ -74,6 +74,24 @@ const app = createApp({
     const memoryColor = computed(() => ringColor(memoryPct.value))
     const goroutineColor = computed(() => ringColor(goroutinePct.value))
 
+    // Queue progress
+    const queuePct = computed(() => queueSize.value > 0 ? Math.round((queuePending.value / queueSize.value) * 100) : 0)
+    const queueBarClass = computed(() => {
+      const p = queuePct.value
+      if (p >= 90) return 'queue-critical'
+      if (p >= 70) return 'queue-warn'
+      return 'queue-ok'
+    })
+
+    // Sign key masking and copy
+    function maskKey(key) {
+      if (!key || key.length <= 8) return key
+      return key.slice(0, 4) + '****' + key.slice(-4)
+    }
+    function copyText(text) {
+      navigator.clipboard.writeText(text).catch(() => {})
+    }
+
     let refreshTimer = null
 
     // Format ISO timestamp to HH:MM:SS
@@ -300,8 +318,11 @@ const app = createApp({
       // Ring
       memoryPct, goroutinePct, memoryColor, goroutineColor,
       MEMORY_STD, GOROUTINE_STD, CIRCUMFERENCE,
+      // Queue
+      queuePct, queueBarClass,
       // Helpers
       formatTimestamp, stepDetail, hoveredStep,
+      maskKey, copyText,
     }
   }
 })

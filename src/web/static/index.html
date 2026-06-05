@@ -33,6 +33,12 @@
           <div class="kv"><span class="k">上次同步</span><span class="v">{{ lastSyncAt }}</span></div>
           <div class="kv"><span class="k">同步间隔</span><span class="v">{{ intervalMinutes }} 分钟</span></div>
           <div class="kv"><span class="k">队列待处理</span><span class="v">{{ queuePending }} / {{ queueSize }}</span></div>
+          <div class="queue-bar-wrap" v-if="queueSize > 0">
+            <div class="queue-bar">
+              <div class="queue-bar-fill" :class="queueBarClass" :style="{ width: queuePct + '%' }"></div>
+            </div>
+            <span class="queue-bar-label" :class="queueBarClass">{{ queuePct }}%</span>
+          </div>
         </div>
       </section>
 
@@ -41,17 +47,16 @@
         <div class="ring-container">
           <!-- Memory Ring -->
           <div class="ring-item">
+            <div class="ring-label">内存</div>
             <div class="ring-tooltip">
               {{ memoryMB }} MB / {{ MEMORY_STD }} MB = {{ memoryPct }}%
             </div>
             <svg class="ring-svg" :class="{ 'ring-pulse': memoryPct > 90 }" viewBox="0 0 80 80">
               <circle class="ring-track" cx="40" cy="40" r="36" />
-              <!-- Glow layer -->
               <circle class="ring-glow" cx="40" cy="40" r="36"
                 :stroke="memoryColor"
                 stroke-dasharray="226.19"
                 :stroke-dashoffset="226.19 - (226.19 * Math.min(memoryPct, 100) / 100)" />
-              <!-- Main stroke -->
               <circle class="ring-fill" cx="40" cy="40" r="36"
                 :stroke="memoryColor"
                 stroke-dasharray="226.19"
@@ -61,17 +66,16 @@
           </div>
           <!-- Goroutine Ring -->
           <div class="ring-item">
+            <div class="ring-label">协程</div>
             <div class="ring-tooltip">
               {{ goroutines }} / {{ GOROUTINE_STD }} = {{ goroutinePct }}%
             </div>
             <svg class="ring-svg" :class="{ 'ring-pulse': goroutinePct > 90 }" viewBox="0 0 80 80">
               <circle class="ring-track" cx="40" cy="40" r="36" />
-              <!-- Glow layer -->
               <circle class="ring-glow" cx="40" cy="40" r="36"
                 :stroke="goroutineColor"
                 stroke-dasharray="226.19"
                 :stroke-dashoffset="226.19 - (226.19 * Math.min(goroutinePct, 100) / 100)" />
-              <!-- Main stroke -->
               <circle class="ring-fill" cx="40" cy="40" r="36"
                 :stroke="goroutineColor"
                 stroke-dasharray="226.19"
@@ -80,6 +84,21 @@
             <div class="ring-value">{{ goroutines }} <small>个</small></div>
           </div>
         </div>
+      </section>
+
+      <section class="card card-actions">
+        <h2>操作</h2>
+        <div class="action-main">
+          <button class="btn btn-primary btn-sync" @click="doSync" :disabled="syncing">
+            <span v-if="syncing" class="btn-spinner"></span>
+            {{ syncing ? '同步中...' : '手动同步' }}
+          </button>
+          <div class="action-links">
+            <a class="btn btn-secondary btn-sm" href="/api/status" target="_blank">状态 API</a>
+            <a class="btn btn-secondary btn-sm" href="/metrics" target="_blank">Prometheus</a>
+          </div>
+        </div>
+        <div class="sync-msg" v-if="syncMsg">{{ syncMsg }}</div>
       </section>
 
       <section class="card card-metrics">
@@ -119,25 +138,28 @@
       <section class="card card-history">
         <h2>最近处理</h2>
         <div class="history-list">
-          <div v-if="history.length === 0" class="empty">暂无处理记录</div>
-          <div v-for="h in history" :key="h.time + h.code" class="history-item">
+          <div v-if="history.length === 0" class="history-empty">
+            <svg class="history-empty-icon" viewBox="0 0 80 80" fill="none">
+              <rect x="12" y="16" width="56" height="48" rx="6" stroke="#d9d9d9" stroke-width="2"/>
+              <line x1="22" y1="30" x2="58" y2="30" stroke="#e8e8e8" stroke-width="2" stroke-linecap="round"/>
+              <line x1="22" y1="40" x2="50" y2="40" stroke="#e8e8e8" stroke-width="2" stroke-linecap="round"/>
+              <line x1="22" y1="50" x2="42" y2="50" stroke="#e8e8e8" stroke-width="2" stroke-linecap="round"/>
+              <circle cx="58" cy="52" r="10" stroke="#d9d9d9" stroke-width="2"/>
+              <path d="M55 52l2 2 4-4" stroke="#d9d9d9" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div class="history-empty-text">暂无处理记录</div>
+            <div class="history-empty-hint">单据校验通过或拒绝后会在此显示</div>
+          </div>
+          <div v-for="(h, hi) in history" :key="h.time + h.code" class="history-item">
+            <div class="history-dot" :class="h.action === 'accept' ? 'dot-ok' : 'dot-refuse'"></div>
             <span class="time">{{ h.time }}</span>
             <span class="code">{{ h.code }}</span>
-            <span class="action"><span class="tag" :class="h.action === 'accept' ? 'tag-ok' : 'tag-refuse'">{{ h.action }}</span></span>
+            <span class="action"><span class="tag" :class="h.action === 'accept' ? 'tag-ok' : 'tag-refuse'">{{ h.action === 'accept' ? '通过' : '拒绝' }}</span></span>
             <span class="comment">{{ h.comment }}</span>
           </div>
         </div>
       </section>
 
-      <section class="card card-actions">
-        <h2>操作</h2>
-        <div class="btn-group">
-          <button class="btn btn-primary" @click="doSync" :disabled="syncing">{{ syncing ? '同步中...' : '手动同步' }}</button>
-          <a class="btn btn-secondary" href="/api/status" target="_blank">状态 API</a>
-          <a class="btn btn-secondary" href="/metrics" target="_blank">Prometheus</a>
-        </div>
-        <div class="sync-msg">{{ syncMsg }}</div>
-      </section>
     </div>
 
     <!-- 规则工作流页面 -->
@@ -245,24 +267,34 @@
     <!-- Webhooks 页面 -->
     <div v-if="currentPage === 'webhooks'" class="page-webhooks">
       <div v-if="webhooks.length === 0" class="empty">未配置 webhook</div>
-      <table v-else class="data-table">
-        <thead>
-          <tr>
-            <th>Key</th>
-            <th>Sign Key</th>
-            <th>Rules 文件</th>
-            <th>预算包</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="wh in webhooks" :key="wh.key">
-            <td><strong>{{ wh.key }}</strong></td>
-            <td><code class="muted">{{ wh.sign_key }}</code></td>
-            <td>{{ wh.rules || ('rules/' + wh.key + '.json') }}</td>
-            <td>{{ (wh.targets || []).map(t => t.name || t.id).join('、') || '-' }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div v-for="wh in webhooks" :key="wh.key" class="webhook-card">
+        <div class="webhook-card-header">
+          <div class="webhook-card-key">{{ wh.key }}</div>
+          <code class="webhook-card-rules">{{ wh.rules || ('rules/' + wh.key + '.json') }}</code>
+        </div>
+        <div class="webhook-card-body">
+          <div class="webhook-card-row">
+            <span class="webhook-card-label">Sign Key</span>
+            <div class="sign-key-group">
+              <code class="sign-key-text">{{ wh._showKey ? wh.sign_key : maskKey(wh.sign_key) }}</code>
+              <button class="btn-icon btn-toggle-key" @click="wh._showKey = !wh._showKey" :title="wh._showKey ? '隐藏' : '显示'">{{ wh._showKey ? '🙈' : '👁' }}</button>
+              <button class="btn-icon btn-copy-key" @click="copyText(wh.sign_key)" title="复制">📋</button>
+            </div>
+          </div>
+          <div class="webhook-card-row">
+            <span class="webhook-card-label">预算包</span>
+            <div class="webhook-targets-list">
+              <span v-if="!wh.targets || wh.targets.length === 0" class="muted">-</span>
+              <span v-for="t in (wh.targets || [])" :key="t.id" class="webhook-target-badge">{{ t.name || t.id }}</span>
+            </div>
+          </div>
+          <div class="webhook-card-row webhook-card-url">
+            <span class="webhook-card-label">Webhook URL</span>
+            <code class="webhook-url-text">/api/webhook/{{ wh.key }}</code>
+            <button class="btn-icon btn-copy-key" @click="copyText('/api/webhook/' + wh.key)" title="复制">📋</button>
+          </div>
+        </div>
+      </div>
     </div>
   </main>
 </div>
