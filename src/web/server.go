@@ -29,6 +29,7 @@ type Deps struct {
 	OnSync           func()                        // 手动同步回调
 	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig
 	SaveRulesFunc    func(string, *types.RulesConfig) error // 保存规则+重编译引擎
+	CreateWebhookFunc func(string, string) error   // 创建新 webhook
 	StartTime        time.Time                     // 服务启动时间
 	LastSyncDuration *atomic.Int64                 // 上次同步耗时（纳秒）
 	Client           *ekb.Client                   // 合思客户端（用于获取费用类型数量）
@@ -72,9 +73,13 @@ func Register(mux *http.ServeMux, deps Deps) {
 			}
 		}))
 
-		// Webhooks 配置 API
+		// Webhooks 配置 API（GET 列表 / POST 创建）
 		mux.HandleFunc("/api/webhooks", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
-			handleWebhooks(w, r, cfg)
+			if r.Method == http.MethodPost {
+				handleCreateWebhook(w, r, deps.CreateWebhookFunc)
+			} else {
+				handleWebhooks(w, r, cfg)
+			}
 		}))
 
 		log.Printf("[Web] 管理页面已启用: http://localhost:%d", cfg.Server.Port)
@@ -87,17 +92,24 @@ func Register(mux *http.ServeMux, deps Deps) {
 	// Prometheus metrics 端点（不需要认证）
 	mux.Handle("/metrics", handleMetrics())
 
-	// Webhooks：按配置动态注册，每个 webhook 一个路由
-	for key := range cfg.Webhooks {
-		webhookKey := key // 闭包捕获
-		mux.HandleFunc("/api/webhook/"+webhookKey, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", 405)
-				return
-			}
-			handleWebhook(w, r, webhookKey, deps.Queue.Enqueue, queue.GenTaskID)
-		})
-	}
+	// Webhooks：catch-all 动态路由，运行期新建的 webhook 自动生效
+	mux.HandleFunc("/api/webhook/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", 405)
+			return
+		}
+		key := r.URL.Path[len("/api/webhook/"):]
+		if key == "" {
+			http.NotFound(w, r)
+			return
+		}
+		// 动态检查：运行时创建的 webhook 也能路由
+		if _, ok := cfg.Webhooks[key]; !ok {
+			http.NotFound(w, r)
+			return
+		}
+		handleWebhook(w, r, key, deps.Queue.Enqueue, queue.GenTaskID)
+	})
 
 	// Config API
 	mux.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {

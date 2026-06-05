@@ -24,6 +24,7 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 		cfg.BaseDir = filepath.Dir(resolveAbs(path))
+		cfg.ConfigPath = resolveAbs(path)
 		return cfg, nil
 	}
 
@@ -41,6 +42,7 @@ func LoadConfig(path string) (*Config, error) {
 				return nil, err
 			}
 			cfg.BaseDir = filepath.Dir(resolveAbs(p))
+			cfg.ConfigPath = resolveAbs(p)
 			return cfg, nil
 		}
 	}
@@ -81,6 +83,21 @@ func LoadRules(path string) (*types.RulesConfig, error) {
 	}
 
 	return &rules, nil
+}
+
+// SaveConfig 将配置写回 YAML 文件
+func SaveConfig(cfg *Config) error {
+	if cfg.ConfigPath == "" {
+		return fmt.Errorf("配置文件路径未知，无法保存")
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("序列化配置失败: %w", err)
+	}
+	if err := os.WriteFile(cfg.ConfigPath, data, 0644); err != nil {
+		return fmt.Errorf("写入配置文件失败: %w", err)
+	}
+	return nil
 }
 
 // SaveRules 验证并保存规则配置到 JSON 文件

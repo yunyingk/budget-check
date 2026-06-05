@@ -266,6 +266,10 @@
 
     <!-- Webhooks 页面 -->
     <div v-if="currentPage === 'webhooks'" class="page-webhooks">
+      <div class="page-header-row">
+        <h2 class="page-title">Webhooks</h2>
+        <button class="btn btn-primary" @click="showCreateModal = true">+ 新建 Webhook</button>
+      </div>
       <div v-if="webhooks.length === 0" class="empty">未配置 webhook</div>
       <div v-for="wh in webhooks" :key="wh.key" class="webhook-card">
         <div class="webhook-card-header">
@@ -297,6 +301,33 @@
       </div>
     </div>
   </main>
+
+  <!-- 新建 Webhook 弹窗 -->
+  <div v-if="showCreateModal" class="modal-overlay" @click.self="showCreateModal = false">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>新建 Webhook</h3>
+        <button class="btn-icon" @click="showCreateModal = false">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Webhook Key</label>
+          <input v-model="createForm.key" class="input-sm input-full" placeholder="例如: budget-check" @keydown.enter="createWebhook">
+          <div class="form-hint">唯一标识，用于 URL 路径: /api/webhook/{key}</div>
+        </div>
+        <div class="form-group">
+          <label>Sign Key</label>
+          <input v-model="createForm.sign_key" class="input-sm input-full" placeholder="审批回调签名密钥">
+          <div class="form-hint">合思审批回调时用于验证身份的签名密钥</div>
+        </div>
+        <div v-if="createMsg" class="editor-msg" :class="createMsg.startsWith('✓') ? 'msg-ok' : 'msg-err'">{{ createMsg }}</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="showCreateModal = false">取消</button>
+        <button class="btn btn-primary" @click="createWebhook" :disabled="createSaving">{{ createSaving ? '创建中...' : '创建' }}</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>

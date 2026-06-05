@@ -57,6 +57,13 @@ func (c *Checker) UpdateEngine(key string, engine *rules.Engine) {
 	c.Engines[key] = engine
 }
 
+// AddSignKey 注册新的 webhook sign key（线程安全）
+func (c *Checker) AddSignKey(key, signKey string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.SignKeys[key] = signKey
+}
+
 func (c *Checker) GetHistory() []HistoryItem {
 	c.mu.Lock()
 	defer c.mu.Unlock()

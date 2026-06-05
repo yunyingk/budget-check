@@ -55,4 +55,5 @@ type Config struct {
 	Web             WebConfig               `yaml:"web"`
 	DimensionNames  map[string]string       `yaml:"dimension_names"` // 字段名→中文名映射
 	BaseDir         string                  `yaml:"-"`               // 配置文件所在目录（运行时填充）
+	ConfigPath      string                  `yaml:"-"`               // 配置文件完整路径（运行时填充）
 }

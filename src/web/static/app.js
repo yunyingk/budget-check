@@ -68,6 +68,12 @@ const app = createApp({
     const editSaving = ref(false)
     const editMsg = ref('')
 
+    // Create Webhook modal
+    const showCreateModal = ref(false)
+    const createForm = reactive({ key: '', sign_key: '' })
+    const createSaving = ref(false)
+    const createMsg = ref('')
+
     // Ring computations
     const memoryPct = computed(() => Math.round((memoryMB.value / MEMORY_STD) * 100))
     const goroutinePct = computed(() => Math.round((goroutines.value / GOROUTINE_STD) * 100))
@@ -255,6 +261,39 @@ const app = createApp({
       }
     }
 
+    // Create webhook
+    async function createWebhook() {
+      if (!createForm.key.trim()) { createMsg.value = '请输入 Webhook Key'; return }
+      if (!createForm.sign_key.trim()) { createMsg.value = '请输入 Sign Key'; return }
+      createSaving.value = true
+      createMsg.value = ''
+      try {
+        const r = await fetch('/api/webhooks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: createForm.key.trim(), sign_key: createForm.sign_key.trim() }),
+        })
+        const d = await r.json()
+        if (r.ok && d.status === 'ok') {
+          createMsg.value = '✓ 创建成功！'
+          await loadWebhooks()
+          await loadAllRules()
+          setTimeout(() => {
+            showCreateModal.value = false
+            createMsg.value = ''
+            createForm.key = ''
+            createForm.sign_key = ''
+          }, 800)
+        } else {
+          createMsg.value = d.error || '创建失败'
+        }
+      } catch (e) {
+        createMsg.value = '请求失败: ' + e.message
+      } finally {
+        createSaving.value = false
+      }
+    }
+
     // Step detail descriptions (multi-line)
     const STEP_DETAILS = {
       split_detail:
@@ -315,6 +354,8 @@ const app = createApp({
       editMode, editDraft, editSaving, editMsg,
       startEdit, cancelEdit, addTarget, removeTarget,
       addStep, removeStep, moveStep, saveRules,
+      // Create Webhook
+      showCreateModal, createForm, createSaving, createMsg, createWebhook,
       // Ring
       memoryPct, goroutinePct, memoryColor, goroutineColor,
       MEMORY_STD, GOROUTINE_STD, CIRCUMFERENCE,

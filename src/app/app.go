@@ -134,6 +134,67 @@ func (a *App) Sync() {
 	metrics.LastSyncTimestamp.Set(float64(time.Now().Unix()))
 }
 
+// CreateWebhook 创建新 webhook：写入内存 + 规则文件 + 更新 Checker + 持久化配置
+func (a *App) CreateWebhook(key, signKey string) error {
+	if key == "" {
+		return fmt.Errorf("webhook key 不能为空")
+	}
+	if signKey == "" {
+		return fmt.Errorf("sign_key 不能为空")
+	}
+	if _, exists := a.Config.Webhooks[key]; exists {
+		return fmt.Errorf("webhook %s 已存在", key)
+	}
+
+	// 初始化 maps（如果为 nil）
+	if a.Engines == nil {
+		a.Engines = make(map[string]*rules.Engine)
+	}
+	if a.RulesCfgs == nil {
+		a.RulesCfgs = make(map[string]*types.RulesConfig)
+	}
+	if a.RulesPaths == nil {
+		a.RulesPaths = make(map[string]string)
+	}
+
+	// 创建空规则文件（相对路径用于配置持久化，绝对路径用于实际读写）
+	relRulesPath := fmt.Sprintf("rules/%s.json", key)
+	absRulesPath := relRulesPath
+	if a.Config.BaseDir != "" {
+		absRulesPath = filepath.Join(a.Config.BaseDir, relRulesPath)
+	}
+	emptyRules := &types.RulesConfig{Version: 1, Targets: []types.RuleTarget{}}
+	if err := config.SaveRules(absRulesPath, emptyRules); err != nil {
+		return fmt.Errorf("创建规则文件失败: %w", err)
+	}
+
+	// 编译空引擎
+	engine, err := rules.NewEngine(a.Store, a.Client, emptyRules, a.Config.DimensionNames)
+	if err != nil {
+		return fmt.Errorf("规则引擎编译失败: %w", err)
+	}
+
+	// 写入内存（配置用相对路径，运行时用绝对路径）
+	a.Config.Webhooks[key] = config.WebhookEntry{
+		SignKey: signKey,
+		Targets: []config.BudgetTarget{},
+		Rules:   relRulesPath,
+	}
+	a.Engines[key] = engine
+	a.RulesCfgs[key] = emptyRules
+	a.RulesPaths[key] = absRulesPath
+	a.Checker.AddSignKey(key, signKey)
+	a.Checker.UpdateEngine(key, engine)
+
+	// 持久化配置
+	if err := config.SaveConfig(a.Config); err != nil {
+		log.Printf("[Webhook] 警告: webhook %s 已创建但配置保存失败: %v", key, err)
+	}
+
+	log.Printf("[Webhook] 新建 webhook: key=%s signKey=%s rules=%s", key, signKey, absRulesPath)
+	return nil
+}
+
 // SaveRules 保存规则文件并重新编译引擎
 func (a *App) SaveRules(key string, cfg *types.RulesConfig) error {
 	path, ok := a.RulesPaths[key]
@@ -200,6 +261,7 @@ func (a *App) Run() error {
 		OnSync:           a.Sync,
 		RulesCfgs:        a.RulesCfgs,
 		SaveRulesFunc:    a.SaveRules,
+		CreateWebhookFunc: a.CreateWebhook,
 		StartTime:        a.StartTime,
 		LastSyncDuration: &a.LastSyncDuration,
 		Client:           a.Client,

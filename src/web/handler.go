@@ -175,6 +175,39 @@ func handleWebhooks(w http.ResponseWriter, r *http.Request, cfg *config.Config) 
 
 func bToMB(b uint64) uint64 { return b / 1024 / 1024 }
 
+// handleCreateWebhook 创建新 webhook POST /api/webhooks
+func handleCreateWebhook(w http.ResponseWriter, r *http.Request, createFunc func(string, string) error) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, 405, map[string]string{"error": "方法不允许"})
+		return
+	}
+	var req struct {
+		Key     string `json:"key"`
+		SignKey string `json:"sign_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeJSON(w, 400, map[string]string{"error": "JSON 解析失败"})
+		return
+	}
+	if req.Key == "" {
+		writeJSON(w, 400, map[string]string{"error": "webhook key 不能为空"})
+		return
+	}
+	if req.SignKey == "" {
+		writeJSON(w, 400, map[string]string{"error": "sign_key 不能为空"})
+		return
+	}
+	if createFunc == nil {
+		writeJSON(w, 500, map[string]string{"error": "创建功能未启用"})
+		return
+	}
+	if err := createFunc(req.Key, req.SignKey); err != nil {
+		writeJSON(w, 400, map[string]string{"error": err.Error()})
+		return
+	}
+	writeJSON(w, 200, map[string]string{"status": "ok", "key": req.Key})
+}
+
 func handleHome(w http.ResponseWriter, r *http.Request) {
 	data, err := staticFS.ReadFile("static/index.html")
 	if err != nil {
