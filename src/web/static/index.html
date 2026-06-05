@@ -340,8 +340,8 @@
                           <input v-if="!isListOp(s._whenOp)" v-model="s._whenValue" class="input-sm input-when-value" placeholder="值" @input="updateWhenExpr(s)">
                           <!-- 列表值输入（in/not in） -->
                           <div v-if="isListOp(s._whenOp)" class="when-list-input">
-                            <input v-model="s._whenValue" class="input-sm input-when-value" placeholder="值1, 值2, 值3（逗号分隔）" @input="updateWhenExpr(s)">
-                            <span class="when-list-hint">多个值用逗号分隔</span>
+                            <input v-model="s._whenValue" class="input-sm input-when-value input-when-list" placeholder="例如: ID001, ID002, ID003" @input="updateWhenExpr(s)">
+                            <span class="when-list-hint">多个值用英文逗号 , 分隔</span>
                           </div>
                         </div>
                       </div>

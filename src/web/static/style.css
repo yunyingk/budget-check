@@ -1180,6 +1180,12 @@ header .version {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  flex: 1;
+}
+
+.input-when-list {
+  width: 100% !important;
+  min-width: 200px;
 }
 
 .when-list-hint {
