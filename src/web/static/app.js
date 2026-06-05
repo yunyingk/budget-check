@@ -177,16 +177,13 @@ const app = createApp({
       // Force reactivity
       rules.value = { ...rules.value }
 
-      // Default: select first webhook and expand all targets
+      // Default: select first webhook
       if (webhooks.value.length > 0 && !selectedWebhook.value) {
         selectedWebhook.value = webhooks.value[0].key
       }
-      // Expand all targets by default
-      if (selectedWebhook.value && rules.value[selectedWebhook.value]?.targets) {
-        for (const t of rules.value[selectedWebhook.value].targets) {
-          expandedTargets.value[t.id] = true
-        }
-      }
+      // Reset modal states on load
+      showCreateModal.value = false
+      showPasswordModal.value = false
     }
 
     // Manual sync
