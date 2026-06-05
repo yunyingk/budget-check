@@ -1292,15 +1292,20 @@ header .version {
 }
 
 /* ===== Rules Layout ===== */
-.rules-layout {
-  display: flex;
-  gap: 20px;
+.page-rules {
+  width: 100%;
   max-width: 1200px;
   margin: 0 auto;
 }
 
+.rules-layout {
+  display: flex;
+  gap: 20px;
+  width: 100%;
+}
+
 .rules-sidebar {
-  width: 240px;
+  width: 220px;
   flex-shrink: 0;
   background: var(--card-bg);
   border-radius: var(--radius);
@@ -1363,6 +1368,7 @@ header .version {
 .rules-main {
   flex: 1;
   min-width: 0;
+  width: 0; /* 防止内容撑开宽度 */
 }
 
 .rules-empty-select {
