@@ -64,6 +64,10 @@ func (s *budgetService) Execute(args []string, r <-chan svc.ChangeRequest, statu
 	}()
 
 	status <- svc.Status{State: svc.StartPending}
+
+	// 用于通知服务已启动完成
+	started := make(chan struct{})
+
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -72,12 +76,23 @@ func (s *budgetService) Execute(args []string, r <-chan svc.ChangeRequest, statu
 		}()
 		if err := s.app.Init(); err != nil {
 			fmt.Fprintf(os.Stderr, "[Init] 初始化失败: %v\n", err)
+			started <- struct{}{} // 即使失败也通知，避免死锁
 			return
 		}
+		started <- struct{}{} // 初始化完成，通知主协程
 		if err := s.app.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "[Run] 服务运行错误: %v\n", err)
 		}
 	}()
+
+	// 等待初始化完成，但最多等待 30 秒
+	select {
+	case <-started:
+		// 初始化完成
+	case <-time.After(30 * time.Second):
+		fmt.Fprintln(os.Stderr, "[WARN] 初始化超时，服务继续启动...")
+	}
+
 	status <- svc.Status{
 		State:   svc.Running,
 		Accepts: svc.AcceptStop | svc.AcceptShutdown,
