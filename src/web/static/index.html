@@ -427,16 +427,11 @@
           <input v-model="createForm.sign_key" class="input-sm input-full" placeholder="审批回调签名密钥">
           <div class="form-hint">合思审批回调时用于验证身份的签名密钥</div>
         </div>
-        <div class="form-group">
-          <label>管理员密码</label>
-          <input v-model="createForm.password" type="password" class="input-sm input-full" placeholder="请输入管理员密码" @keydown.enter="createWebhook">
-          <div class="form-hint">需要管理员密码验证才能创建</div>
-        </div>
         <div v-if="createMsg" class="editor-msg" :class="createMsg.startsWith('✓') ? 'msg-ok' : 'msg-err'">{{ createMsg }}</div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" @click="showCreateModal = false">取消</button>
-        <button class="btn btn-primary" @click="createWebhook" :disabled="createSaving">{{ createSaving ? '创建中...' : '创建' }}</button>
+        <button class="btn btn-primary" @click="showCreateConfirm" :disabled="createSaving">{{ createSaving ? '创建中...' : '创建' }}</button>
       </div>
     </div>
   </div>

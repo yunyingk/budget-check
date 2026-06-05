@@ -70,16 +70,16 @@ const app = createApp({
 
     // Create Webhook modal
     const showCreateModal = ref(false)
-    const createForm = reactive({ key: '', sign_key: '', password: '' })
+    const createForm = reactive({ key: '', sign_key: '' })
     const createSaving = ref(false)
     const createMsg = ref('')
 
-    // Password verification modal
+    // Password verification modal (shared for save rules and create webhook)
     const showPasswordModal = ref(false)
     const verifyPassword = ref('')
     const verifySaving = ref(false)
     const verifyMsg = ref('')
-    let pendingSaveKey = null
+    let pendingAction = null // { type: 'saveRules', key } or { type: 'createWebhook' }
 
     // Ring computations
     const memoryPct = computed(() => Math.round((memoryMB.value / MEMORY_STD) * 100))
@@ -271,7 +271,18 @@ const app = createApp({
     async function saveRules(key) {
       if (!editDraft.value) return
       // 弹出密码验证弹窗
-      pendingSaveKey = key
+      pendingAction = { type: 'saveRules', key }
+      verifyPassword.value = ''
+      verifyMsg.value = ''
+      showPasswordModal.value = true
+    }
+
+    // Show create webhook confirmation (called from create modal)
+    function showCreateConfirm() {
+      if (!createForm.key.trim()) { createMsg.value = '请输入 Webhook Key'; return }
+      if (!createForm.sign_key.trim()) { createMsg.value = '请输入 Sign Key'; return }
+      // 弹出密码验证弹窗
+      pendingAction = { type: 'createWebhook' }
       verifyPassword.value = ''
       verifyMsg.value = ''
       showPasswordModal.value = true
@@ -282,31 +293,66 @@ const app = createApp({
         verifyMsg.value = '请输入管理员密码'
         return
       }
-      if (!pendingSaveKey || !editDraft.value) return
+      if (!pendingAction) return
 
       verifySaving.value = true
       verifyMsg.value = ''
+
       try {
-        const r = await fetch('/api/rules/' + pendingSaveKey, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            password: verifyPassword.value.trim(),
-            config: editDraft.value,
-          }),
-        })
-        const d = await r.json()
-        if (r.ok && d.status === 'ok') {
-          verifyMsg.value = '✓ 保存成功！'
-          editMsg.value = '✓ 保存成功！重启后生效。'
-          rules.value[pendingSaveKey] = JSON.parse(JSON.stringify(editDraft.value))
-          await refresh()
-          setTimeout(() => {
-            showPasswordModal.value = false
-            verifyMsg.value = ''
-          }, 800)
-        } else {
-          verifyMsg.value = d.error || '保存失败'
+        if (pendingAction.type === 'saveRules') {
+          // 保存规则
+          const r = await fetch('/api/rules/' + pendingAction.key, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              password: verifyPassword.value.trim(),
+              config: editDraft.value,
+            }),
+          })
+          const d = await r.json()
+          if (r.ok && d.status === 'ok') {
+            verifyMsg.value = '✓ 保存成功！'
+            editMsg.value = '✓ 保存成功！重启后生效。'
+            rules.value[pendingAction.key] = JSON.parse(JSON.stringify(editDraft.value))
+            await refresh()
+            setTimeout(() => {
+              showPasswordModal.value = false
+              verifyMsg.value = ''
+            }, 800)
+          } else {
+            verifyMsg.value = d.error || '保存失败'
+          }
+        } else if (pendingAction.type === 'createWebhook') {
+          // 创建 webhook
+          createSaving.value = true
+          createMsg.value = ''
+          const r = await fetch('/api/webhooks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              key: createForm.key.trim(),
+              sign_key: createForm.sign_key.trim(),
+              password: verifyPassword.value.trim(),
+            }),
+          })
+          const d = await r.json()
+          if (r.ok && d.status === 'ok') {
+            verifyMsg.value = '✓ 创建成功！'
+            createMsg.value = '✓ 创建成功！'
+            await loadWebhooks()
+            await loadAllRules()
+            setTimeout(() => {
+              showPasswordModal.value = false
+              showCreateModal.value = false
+              verifyMsg.value = ''
+              createMsg.value = ''
+              createForm.key = ''
+              createForm.sign_key = ''
+            }, 800)
+          } else {
+            verifyMsg.value = d.error || '创建失败'
+          }
+          createSaving.value = false
         }
       } catch (e) {
         verifyMsg.value = '请求失败: ' + e.message
@@ -315,44 +361,7 @@ const app = createApp({
       }
     }
 
-    // Create webhook
-    async function createWebhook() {
-      if (!createForm.key.trim()) { createMsg.value = '请输入 Webhook Key'; return }
-      if (!createForm.sign_key.trim()) { createMsg.value = '请输入 Sign Key'; return }
-      if (!createForm.password.trim()) { createMsg.value = '请输入管理员密码'; return }
-      createSaving.value = true
-      createMsg.value = ''
-      try {
-        const r = await fetch('/api/webhooks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key: createForm.key.trim(),
-            sign_key: createForm.sign_key.trim(),
-            password: createForm.password.trim(),
-          }),
-        })
-        const d = await r.json()
-        if (r.ok && d.status === 'ok') {
-          createMsg.value = '✓ 创建成功！'
-          await loadWebhooks()
-          await loadAllRules()
-          setTimeout(() => {
-            showCreateModal.value = false
-            createMsg.value = ''
-            createForm.key = ''
-            createForm.sign_key = ''
-            createForm.password = ''
-          }, 800)
-        } else {
-          createMsg.value = d.error || '创建失败'
-        }
-      } catch (e) {
-        createMsg.value = '请求失败: ' + e.message
-      } finally {
-        createSaving.value = false
-      }
-    }
+    // Create webhook - now handled by confirmPassword after password verification
 
     // Step detail descriptions (multi-line)
     const STEP_DETAILS = {
@@ -540,7 +549,7 @@ const app = createApp({
       startEdit, cancelEdit, addTarget, removeTarget,
       addStep, removeStep, moveStep, saveRules,
       // Create Webhook
-      showCreateModal, createForm, createSaving, createMsg, createWebhook,
+      showCreateModal, createForm, createSaving, createMsg, showCreateConfirm,
       // Password verification
       showPasswordModal, verifyPassword, verifySaving, verifyMsg, confirmPassword,
       // Ring

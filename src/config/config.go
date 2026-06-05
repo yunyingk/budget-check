@@ -41,8 +41,9 @@ type LogConfig struct {
 
 // WebConfig Web 管理页面配置
 type WebConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Password string `yaml:"password"`
+	Enabled       bool   `yaml:"enabled"`
+	Password      string `yaml:"password"`
+	AdminPassword string `yaml:"admin_password"` // 管理员密码（规则保存、新建 webhook 等敏感操作）
 }
 
 // Config 全局运行时配置
