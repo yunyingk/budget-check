@@ -1311,6 +1311,7 @@ header .version {
   border-radius: var(--radius);
   box-shadow: var(--shadow);
   overflow: hidden;
+  border-left: 4px solid var(--primary);
 }
 
 .sidebar-header {
@@ -1369,6 +1370,11 @@ header .version {
   flex: 1;
   min-width: 0;
   width: 0; /* 防止内容撑开宽度 */
+  background: var(--card-bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 20px;
+  border-left: 4px solid var(--success);
 }
 
 .rules-empty-select {
