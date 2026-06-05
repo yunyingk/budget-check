@@ -18,6 +18,20 @@ import (
 
 const serviceName = "BudgetCheck"
 
+func prepareWorkingDir(install, uninstall bool) {
+	isWinService, _ := svc.IsWindowsService()
+	if !isWinService && !install && !uninstall {
+		return
+	}
+	if exePath, err := os.Executable(); err == nil {
+		if dir := filepath.Dir(exePath); dir != "" {
+			if err := os.Chdir(dir); err != nil {
+				fmt.Fprintf(os.Stderr, "[Service] 切换工作目录失败: %v\n", err)
+			}
+		}
+	}
+}
+
 func handleInstall() {
 	fmt.Printf("合思预算校验服务 v%s\n", version)
 	if err := installService(); err != nil {

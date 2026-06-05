@@ -7,8 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 )
 
 func main() {
@@ -18,15 +16,7 @@ func main() {
 	uninstall := flag.Bool("uninstall", false, "卸载 Windows 服务")
 	flag.Parse()
 
-	// Windows 服务模式下工作目录默认是 System32，需要切到 exe 所在目录
-	// 普通模式（命令行运行）不需要 chdir，否则会导致相对路径失效
-	if *install || *uninstall {
-		if exePath, err := os.Executable(); err == nil {
-			if dir := filepath.Dir(exePath); dir != "" {
-				os.Chdir(dir)
-			}
-		}
-	}
+	prepareWorkingDir(*install, *uninstall)
 
 	if *install {
 		handleInstall()
