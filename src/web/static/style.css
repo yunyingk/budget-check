@@ -1152,3 +1152,145 @@ header .version {
   0%, 100% { box-shadow: 0 0 0 3px rgba(82, 196, 26, 0.2); }
   50%      { box-shadow: 0 0 0 6px rgba(82, 196, 26, 0.08); }
 }
+
+/* ===== When Condition Editor ===== */
+.when-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.input-when-field {
+  width: 140px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+}
+
+.input-when-op {
+  width: 130px;
+  font-size: 12px;
+  background: #fff;
+}
+
+.input-when-value {
+  width: 160px;
+  font-family: "SF Mono", "Fira Code", monospace;
+  font-size: 12px;
+}
+
+.input-desc {
+  width: 180px;
+}
+
+.input-reason {
+  width: 200px;
+}
+
+/* Step type badges */
+.edit-step-fields select {
+  min-width: 120px;
+}
+
+/* Step action icons */
+.step-action-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--info-bg);
+  color: var(--primary);
+}
+
+.step-condition-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--warn-bg);
+  color: var(--warn);
+}
+
+/* When condition preview in view mode */
+.when-preview {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.when-field {
+  font-family: "SF Mono", "Fira Code", monospace;
+  background: #f0f2f5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid #e8e8e8;
+}
+
+.when-op {
+  color: var(--warn);
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.when-value {
+  font-family: "SF Mono", "Fira Code", monospace;
+  background: #fff3cd;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  border: 1px solid #ffc107;
+}
+
+/* Editor step enhancements */
+.edit-step {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  border: 1px solid #f0f0f0;
+}
+
+.edit-step:hover {
+  background: #f6f8fc;
+  border-color: #e0e4ef;
+}
+
+.edit-step-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.edit-step-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding-left: 30px;
+}
+
+.edit-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.edit-step-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 50px;
+  flex-shrink: 0;
+}

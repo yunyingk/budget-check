@@ -195,6 +195,19 @@ const app = createApp({
       const r = rules.value[key]
       if (r) {
         editDraft.value = JSON.parse(JSON.stringify(r))
+        // 解析 when 表达式为三段式
+        if (editDraft.value.targets) {
+          for (const t of editDraft.value.targets) {
+            if (t.steps) {
+              for (const s of t.steps) {
+                const parsed = parseWhenExpr(s.when)
+                s._whenField = parsed.field
+                s._whenOp = parsed.op
+                s._whenValue = parsed.value
+              }
+            }
+          }
+        }
       }
     }
 
@@ -220,6 +233,7 @@ const app = createApp({
     function addStep(targetIdx) {
       editDraft.value.targets[targetIdx].steps.push({
         action: '', when: '', then: '', reason: '', description: '',
+        _whenField: '', _whenOp: '==', _whenValue: '',
       })
     }
 
@@ -320,8 +334,79 @@ const app = createApp({
     const hoveredStep = ref(null)
     function stepDetail(s) {
       if (s.action) return STEP_DETAILS[s.action] || ''
-      if (s.then) return THEN_DETAILS[s.then] || ''
+      if (s.when) {
+        const parts = [`条件: ${s.when}`]
+        if (s.then) parts.push(`动作: ${s.then}`)
+        if (s.reason) parts.push(`原因: ${s.reason}`)
+        return parts.join('\n')
+      }
       return ''
+    }
+
+    // 解析 when 表达式为三段式：字段、运算符、值
+    function parseWhenExpr(expr) {
+      if (!expr) return { field: '', op: '==', value: '' }
+
+      // 运算符优先级（长的在前）
+      const ops = ['not contains', 'not in', 'contains', 'in', '>=', '<=', '!=', '==', '>', '<']
+      for (const op of ops) {
+        const idx = expr.indexOf(op)
+        if (idx > 0) {
+          const field = expr.substring(0, idx).trim()
+          let value = expr.substring(idx + op.length).trim()
+          // 去掉外层引号
+          value = value.replace(/^['"]|['"]$/g, '')
+          // 去掉列表的方括号
+          if (op === 'in' || op === 'not in') {
+            value = value.replace(/^\[|\]$/g, '').replace(/^['"]|['"]$/g, '')
+          }
+          return { field, op, value }
+        }
+      }
+      // 无法解析，返回原始值
+      return { field: expr, op: '==', value: '' }
+    }
+
+    // 将三段式更新到 when 表达式
+    function updateWhenExpr(s) {
+      const field = (s._whenField || '').trim()
+      const op = s._whenOp || '=='
+      const value = (s._whenValue || '').trim()
+
+      if (!field || !value) {
+        s.when = ''
+        return
+      }
+
+      // 需要引号的值（非数字）
+      const needsQuote = isNaN(value) && !value.startsWith("'") && !value.startsWith('"')
+      const quotedValue = needsQuote ? `'${value}'` : value
+
+      // contains/not contains 特殊格式
+      if (op === 'contains') {
+        s.when = `${field} contains ${quotedValue}`
+      } else if (op === 'not contains') {
+        s.when = `${field} not contains ${quotedValue}`
+      } else if (op === 'in') {
+        s.when = `${field} in [${quotedValue}]`
+      } else if (op === 'not in') {
+        s.when = `${field} not in [${quotedValue}]`
+      } else {
+        s.when = `${field} ${op} ${quotedValue}`
+      }
+    }
+
+    // 步骤类型变更时的处理
+    function onActionChange(s) {
+      if (s.action) {
+        // 选择动作类型时，清除条件相关字段
+        s.when = ''
+        s.then = ''
+        s.reason = ''
+        s._whenField = ''
+        s._whenOp = '=='
+        s._whenValue = ''
+      }
     }
 
     // Lifecycle
@@ -364,6 +449,8 @@ const app = createApp({
       // Helpers
       formatTimestamp, stepDetail, hoveredStep,
       maskKey, copyText,
+      // When editor
+      parseWhenExpr, updateWhenExpr, onActionChange,
     }
   }
 })

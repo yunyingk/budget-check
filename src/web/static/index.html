@@ -191,8 +191,13 @@
                   <div class="step-main">
                     <div class="step-desc">{{ s.description }}</div>
                     <div v-if="s.action" class="step-line step-action">action: <code>{{ s.action }}</code></div>
+                    <!-- When 条件：结构化显示 -->
                     <div v-if="s.when" class="step-line step-when">
-                      when: <code>{{ s.when }}</code>
+                      <span class="when-preview">
+                        <code class="when-field">{{ parseWhenExpr(s.when).field }}</code>
+                        <span class="when-op">{{ parseWhenExpr(s.when).op }}</span>
+                        <code class="when-value">{{ parseWhenExpr(s.when).value }}</code>
+                      </span>
                       <span v-if="s.then" class="step-then-inline">→ <code>{{ s.then }}</code></span>
                     </div>
                     <div v-if="s.reason" class="step-line step-reason">reason: {{ s.reason }}</div>
@@ -231,28 +236,55 @@
             <!-- Steps -->
             <div class="edit-steps">
               <div v-for="(s, si) in t.steps" :key="si" class="edit-step">
-                <div class="edit-step-num">{{ si + 1 }}</div>
-                <div class="edit-step-fields">
-                  <input v-model="s.description" class="input-sm" placeholder="步骤描述">
-                  <select v-model="s.action" class="input-sm">
-                    <option value="">无动作</option>
-                    <option value="split_detail">split_detail</option>
-                    <option value="split_apportion">split_apportion</option>
-                    <option value="match_info_to_budget">match_info_to_budget</option>
+                <div class="edit-step-top">
+                  <div class="edit-step-num">{{ si + 1 }}</div>
+                  <input v-model="s.description" class="input-sm input-desc" placeholder="步骤描述" style="flex:1">
+                  <select v-model="s.action" class="input-sm" @change="onActionChange(s)" style="width:140px">
+                    <option value="">条件判断</option>
+                    <option value="split_detail">拆分明细</option>
+                    <option value="split_apportion">拆分分摊</option>
+                    <option value="match_info_to_budget">匹配预算包</option>
                   </select>
-                  <input v-model="s.when" class="input-sm input-expr" placeholder="when 条件表达式" v-if="!s.action">
-                  <select v-model="s.then" class="input-sm" v-if="s.when && !s.action">
-                    <option value="">无</option>
-                    <option value="pass">pass</option>
-                    <option value="refuse">refuse</option>
-                    <option value="commit">commit</option>
-                  </select>
-                  <input v-model="s.reason" class="input-sm" placeholder="reason 说明" v-if="s.then">
+                  <div class="edit-step-btns" style="flex-direction:row">
+                    <button class="btn-icon" @click="moveStep(ti, si, -1)" :disabled="si === 0" title="上移">↑</button>
+                    <button class="btn-icon" @click="moveStep(ti, si, 1)" :disabled="si === t.steps.length - 1" title="下移">↓</button>
+                    <button class="btn-icon btn-danger" @click="removeStep(ti, si)" title="删除步骤">✕</button>
+                  </div>
                 </div>
-                <div class="edit-step-btns">
-                  <button class="btn-icon" @click="moveStep(ti, si, -1)" :disabled="si === 0" title="上移">↑</button>
-                  <button class="btn-icon" @click="moveStep(ti, si, 1)" :disabled="si === t.steps.length - 1" title="下移">↓</button>
-                  <button class="btn-icon btn-danger" @click="removeStep(ti, si)" title="删除步骤">✕</button>
+
+                <!-- 条件判断时显示 when/then 编辑器 -->
+                <div v-if="!s.action" class="edit-step-content">
+                  <!-- When 条件：三段式 [字段] [运算符] [值] -->
+                  <div class="edit-step-row">
+                    <span class="edit-step-label">条件</span>
+                    <div class="when-editor">
+                      <input v-model="s._whenField" class="input-sm input-when-field" placeholder="字段名" @input="updateWhenExpr(s)">
+                      <select v-model="s._whenOp" class="input-sm input-when-op" @change="updateWhenExpr(s)">
+                        <option value="==">等于 (==)</option>
+                        <option value="!=">不等于 (!=)</option>
+                        <option value=">">大于 (>)</option>
+                        <option value="<">小于 (<)</option>
+                        <option value=">=">大于等于 (>=)</option>
+                        <option value="<=">小于等于 (<=)</option>
+                        <option value="contains">包含</option>
+                        <option value="not contains">不包含</option>
+                        <option value="in">在列表中</option>
+                        <option value="not in">不在列表中</option>
+                      </select>
+                      <input v-model="s._whenValue" class="input-sm input-when-value" placeholder="值" @input="updateWhenExpr(s)">
+                    </div>
+                  </div>
+                  <!-- Then 动作 -->
+                  <div class="edit-step-row">
+                    <span class="edit-step-label">动作</span>
+                    <select v-model="s.then" class="input-sm" style="width:140px">
+                      <option value="">选择动作</option>
+                      <option value="pass">通过 (pass)</option>
+                      <option value="refuse">拒绝 (refuse)</option>
+                      <option value="commit">提交 (commit)</option>
+                    </select>
+                    <input v-if="s.then === 'refuse'" v-model="s.reason" class="input-sm input-reason" placeholder="拒绝原因说明">
+                  </div>
                 </div>
               </div>
               <button class="btn btn-secondary btn-sm btn-add-step" @click="addStep(ti)">+ 添加步骤</button>
