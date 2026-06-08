@@ -21,12 +21,15 @@ const (
 
 // RotatingLogger 按日/周/月轮转的日志器
 type RotatingLogger struct {
-	mu     sync.Mutex
-	dir    string
-	period Period
-	current string
-	file   *os.File
-	writer io.Writer
+	mu         sync.Mutex
+	dir        string
+	period     Period
+	current    string
+	file       *os.File
+	fallback   *os.File
+	writer     io.Writer
+	alsoStdout bool
+	lastErrLog time.Time
 }
 
 // New 创建日志器
@@ -78,20 +81,30 @@ func (l *RotatingLogger) rotate() error {
 
 	l.current = target
 	l.file = f
-	l.writer = f
+	l.writer = l.buildWriter()
 	log.SetOutput(l)
 	return nil
+}
+
+func (l *RotatingLogger) buildWriter() io.Writer {
+	if l.alsoStdout && l.file != nil {
+		return io.MultiWriter(os.Stdout, l.file)
+	}
+	if l.alsoStdout {
+		return os.Stdout
+	}
+	if l.file != nil {
+		return l.file
+	}
+	return os.Stderr
 }
 
 // SetAlsoStdout 同时输出到标准输出（控制台模式用）
 func (l *RotatingLogger) SetAlsoStdout() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.file != nil {
-		l.writer = io.MultiWriter(os.Stdout, l.file)
-	} else {
-		l.writer = os.Stdout
-	}
+	l.alsoStdout = true
+	l.writer = l.buildWriter()
 }
 
 func (l *RotatingLogger) Write(p []byte) (n int, err error) {
@@ -99,19 +112,45 @@ func (l *RotatingLogger) Write(p []byte) (n int, err error) {
 	defer l.mu.Unlock()
 
 	if err := l.rotate(); err != nil {
+		if l.writer != nil {
+			if time.Since(l.lastErrLog) > time.Minute {
+				l.lastErrLog = time.Now()
+				fmt.Fprintf(os.Stderr, "[Log] 轮转失败，继续写入当前日志文件: %v\n", err)
+			}
+			return l.writer.Write(p)
+		}
 		return os.Stderr.Write(p)
 	}
-	n, err = l.writer.Write(p)
-	if l.file != nil {
-		l.file.Sync()
+	if l.writer == nil {
+		return l.writeFallback(p)
 	}
-	return n, err
+	n, err = l.writer.Write(p)
+	if err != nil || n != len(p) {
+		return l.writeFallback(p)
+	}
+	return n, nil
+}
+
+func (l *RotatingLogger) writeFallback(p []byte) (int, error) {
+	if l.fallback == nil {
+		f, err := os.OpenFile(filepath.Join(l.dir, "fallback.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			l.fallback = f
+		}
+	}
+	if l.fallback != nil {
+		return l.fallback.Write(p)
+	}
+	return os.Stderr.Write(p)
 }
 
 // Close 关闭日志文件
 func (l *RotatingLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.fallback != nil {
+		l.fallback.Close()
+	}
 	if l.file != nil {
 		return l.file.Close()
 	}

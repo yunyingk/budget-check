@@ -5,15 +5,15 @@ import (
 	"budget/src/config"
 	"budget/src/consumer"
 	"budget/src/ekb"
+	rotatelog "budget/src/log"
 	"budget/src/metrics"
 	"budget/src/queue"
-	rotatelog "budget/src/log"
-	"net"
 	"budget/src/rules"
 	"budget/src/types"
 	"budget/src/web"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -23,21 +23,21 @@ import (
 
 // App 应用程序容器，持有所有运行时状态
 type App struct {
-	Config        *config.Config
-	Logger        *rotatelog.RotatingLogger
-	Queue         *queue.Queue
-	Store         *budget.Store
-	StoreMu       sync.RWMutex
-	Client        *ekb.Client
-	Syncing       atomic.Bool
-	SyncCfg       budget.SyncConfig
-	Checker       *consumer.Checker
-	Engines       map[string]*rules.Engine        // webhookKey → Engine
-	RulesCfgs     map[string]*types.RulesConfig   // webhookKey → RulesConfig（前端展示用）
-	RulesPaths    map[string]string               // webhookKey → 规则文件路径
-	Version       string
-	StartTime     time.Time                       // 服务启动时间
-	LastSyncDuration atomic.Int64                 // 上次同步耗时（纳秒）
+	Config           *config.Config
+	Logger           *rotatelog.RotatingLogger
+	Queue            *queue.Queue
+	Store            *budget.Store
+	StoreMu          sync.RWMutex
+	Client           *ekb.Client
+	Syncing          atomic.Bool
+	SyncCfg          budget.SyncConfig
+	Checker          *consumer.Checker
+	Engines          map[string]*rules.Engine      // webhookKey → Engine
+	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig（前端展示用）
+	RulesPaths       map[string]string             // webhookKey → 规则文件路径
+	Version          string
+	StartTime        time.Time    // 服务启动时间
+	LastSyncDuration atomic.Int64 // 上次同步耗时（纳秒）
 }
 
 // New 创建 App 实例（不初始化组件）
@@ -135,6 +135,25 @@ func (a *App) Sync() {
 	metrics.LastSyncTimestamp.Set(float64(time.Now().Unix()))
 }
 
+func (a *App) processTask(task types.Task) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
+			a.Checker.AddHistory(task.Code, "panic", fmt.Sprintf("任务处理异常: %v", r))
+		}
+	}()
+	a.StoreMu.RLock()
+	action, comment := a.Checker.Evaluate(task)
+	a.StoreMu.RUnlock()
+	if err := a.Checker.CallbackApproval(task, action, comment); err != nil {
+		failComment := fmt.Sprintf("%s；回调审批失败: %v", comment, err)
+		log.Printf("[Consumer] 回调审批失败: taskID=%s code=%s flowID=%s action=%s error=%v", task.ID, task.Code, task.FlowID, action, err)
+		a.Checker.AddHistory(task.Code, "callback_error", failComment)
+	} else {
+		a.Checker.AddHistory(task.Code, action, comment)
+	}
+}
+
 // CreateWebhook 创建新 webhook：写入内存 + 规则文件 + 更新 Checker + 持久化配置
 func (a *App) CreateWebhook(key, signKey string) error {
 	if key == "" {
@@ -226,19 +245,7 @@ func (a *App) Run() error {
 		// 消费循环
 		go func() {
 			for task := range a.Queue.Chan() {
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("[Consumer] panic: %v, taskID=%s", r, task.ID)
-						}
-					}()
-					a.StoreMu.RLock()
-					action, comment := a.Checker.Evaluate(task)
-					a.StoreMu.RUnlock()
-					if err := a.Checker.CallbackApproval(task, action, comment); err != nil {
-						log.Printf("[Consumer] 回调审批失败: %v", err)
-					}
-				}()
+				a.processTask(task)
 			}
 		}()
 
@@ -252,20 +259,20 @@ func (a *App) Run() error {
 	mux := http.NewServeMux()
 	tokenStore := web.NewTokenStore()
 	web.Register(mux, web.Deps{
-		Config:           a.Config,
-		Store:            a.Store,
-		Checker:          a.Checker,
-		TokenStore:       tokenStore,
-		Queue:            a.Queue,
-		Syncing:          a.Syncing.Load,
-		Version:          a.Version,
-		OnSync:           a.Sync,
-		RulesCfgs:        a.RulesCfgs,
-		SaveRulesFunc:    a.SaveRules,
+		Config:            a.Config,
+		Store:             a.Store,
+		Checker:           a.Checker,
+		TokenStore:        tokenStore,
+		Queue:             a.Queue,
+		Syncing:           a.Syncing.Load,
+		Version:           a.Version,
+		OnSync:            a.Sync,
+		RulesCfgs:         a.RulesCfgs,
+		SaveRulesFunc:     a.SaveRules,
 		CreateWebhookFunc: a.CreateWebhook,
-		StartTime:        a.StartTime,
-		LastSyncDuration: &a.LastSyncDuration,
-		Client:           a.Client,
+		StartTime:         a.StartTime,
+		LastSyncDuration:  &a.LastSyncDuration,
+		Client:            a.Client,
 	})
 
 	// 尝试启动服务，端口被占用时自动+1
