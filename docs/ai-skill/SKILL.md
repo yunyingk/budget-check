@@ -98,6 +98,7 @@ Expected release outputs:
 
 - `dist/budget-check-windows-amd64.exe`
 - `dist/budget-check-windows-arm64.exe`
+- `dist/budget-check-windows-386.exe`
 - `dist/budget-check-darwin-arm64`
 - `dist/budget-check-darwin-amd64`
 - `dist/budget-check-linux-amd64`

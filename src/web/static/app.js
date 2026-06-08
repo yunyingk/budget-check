@@ -61,6 +61,7 @@ const app = createApp({
     // Rules
     const webhooks = ref([])
     const rules = ref({})
+    const ruleErrors = ref({})
 
     // Editor
     const editMode = ref(null)
@@ -165,17 +166,26 @@ const app = createApp({
 
     // Fetch rules for each webhook
     async function loadAllRules() {
+      const nextRules = { ...rules.value }
+      const nextErrors = {}
       for (const wh of webhooks.value) {
         try {
           const r = await fetch('/api/rules/' + wh.key)
-          if (r.ok) {
-            const data = await r.json()
-            rules.value[wh.key] = data
+          const data = await r.json().catch(() => ({}))
+          if (!r.ok) {
+            delete nextRules[wh.key]
+            nextErrors[wh.key] = data.error || ('规则加载失败: HTTP ' + r.status)
+            continue
           }
-        } catch (e) { /* skip */ }
+          nextRules[wh.key] = data
+        } catch (e) {
+          delete nextRules[wh.key]
+          nextErrors[wh.key] = '规则加载失败: ' + e.message
+        }
       }
       // Force reactivity
-      rules.value = { ...rules.value }
+      rules.value = nextRules
+      ruleErrors.value = nextErrors
 
       // Default: select first webhook
       if (webhooks.value.length > 0 && !selectedWebhook.value) {
@@ -311,6 +321,9 @@ const app = createApp({
             verifyMsg.value = '✓ 保存成功！'
             editMsg.value = '✓ 保存成功！重启后生效。'
             rules.value[pendingAction.key] = JSON.parse(JSON.stringify(editDraft.value))
+            const nextErrors = { ...ruleErrors.value }
+            delete nextErrors[pendingAction.key]
+            ruleErrors.value = nextErrors
             await refresh()
             setTimeout(() => {
               showPasswordModal.value = false
@@ -560,6 +573,7 @@ const app = createApp({
       syncing, syncMsg, doSync,
       // Rules
       webhooks, rules,
+      ruleErrors,
       // Editor
       editMode, editDraft, editSaving, editMsg,
       startEdit, cancelEdit, addTarget, removeTarget,

@@ -225,10 +225,11 @@
                 <span>JSON 预览</span>
                 <button class="btn-icon" @click="showJsonPreview = false">✕</button>
               </div>
-              <pre class="json-preview-content">{{ JSON.stringify(rules[selectedWebhook], null, 2) }}</pre>
+              <pre class="json-preview-content">{{ JSON.stringify(rules[selectedWebhook] || { error: ruleErrors[selectedWebhook] || '规则未加载' }, null, 2) }}</pre>
             </div>
 
-            <div v-if="!rules[selectedWebhook]" class="loading">加载中...</div>
+            <div v-if="ruleErrors[selectedWebhook]" class="empty">规则 JSON 加载异常：{{ ruleErrors[selectedWebhook] }}</div>
+            <div v-else-if="!rules[selectedWebhook]" class="loading">加载中...</div>
             <div v-else-if="!rules[selectedWebhook].targets || rules[selectedWebhook].targets.length === 0" class="empty">未配置规则 target</div>
 
             <!-- 只读展示 -->

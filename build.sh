@@ -21,6 +21,9 @@ cp dist/budget-check-windows-amd64.exe dist/budget-check.exe
 echo "→ Windows arm64..."
 GOOS=windows GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-windows-arm64.exe ./src
 
+echo "→ Windows 386..."
+GOOS=windows GOARCH=386 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-windows-386.exe ./src
+
 echo "→ macOS arm64..."
 GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.version=$VERSION" -o dist/budget-check-darwin-arm64 ./src
 
@@ -33,6 +36,10 @@ GOOS=linux GOARCH=amd64 go build -ldflags "-X main.version=$VERSION" -o dist/bud
 
 # 同步配置文件到 dist
 cp config.yaml dist/config.yaml
+rm -rf dist/rules
+cp -R rules dist/rules
 
 echo "构建完成:"
-ls -lh dist/budget-check-windows-amd64.exe dist/budget-check-windows-arm64.exe dist/budget-check-darwin-arm64 dist/budget-check-darwin-amd64 dist/budget-check-linux-amd64 dist/budget-check.exe dist/budget-check-mac
+ls -lh dist/budget-check-windows-amd64.exe dist/budget-check-windows-arm64.exe dist/budget-check-windows-386.exe dist/budget-check-darwin-arm64 dist/budget-check-darwin-amd64 dist/budget-check-linux-amd64 dist/budget-check.exe dist/budget-check-mac
+echo "运行时文件:"
+ls -lh dist/config.yaml dist/rules/*.json
