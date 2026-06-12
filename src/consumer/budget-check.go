@@ -8,6 +8,7 @@ import (
 	"budget/src/types"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -151,8 +152,15 @@ func (c *Checker) CallbackApproval(task types.Task, action, comment string) erro
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("读取响应失败: %w", err)
+	}
+	log.Printf("[Consumer] 审批回调响应: taskID=%s code=%s webhook=%s flowID=%s nodeID=%s action=%s comment=%q status=%d body=%s",
+		task.ID, task.Code, task.WebhookKey, task.FlowID, task.NodeID, action, comment, resp.StatusCode, truncateLog(respBody, 4000))
+
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(respBody, &result); err != nil {
 		return fmt.Errorf("解析响应失败: %w", err)
 	}
 
@@ -166,6 +174,13 @@ func (c *Checker) CallbackApproval(task types.Task, action, comment string) erro
 		}
 	}
 
-	log.Printf("[Consumer] 审批回调成功: flowID=%s action=%s", task.FlowID, action)
+	log.Printf("[Consumer] 审批回调成功: taskID=%s code=%s flowID=%s nodeID=%s action=%s", task.ID, task.Code, task.FlowID, task.NodeID, action)
 	return nil
+}
+
+func truncateLog(b []byte, max int) string {
+	if len(b) <= max {
+		return string(b)
+	}
+	return string(b[:max]) + "...(truncated)"
 }
