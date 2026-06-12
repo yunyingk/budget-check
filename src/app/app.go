@@ -121,18 +121,23 @@ func (a *App) Init() error {
 }
 
 // Sync 手动触发一次预算同步（带锁保护）
-func (a *App) Sync() {
+func (a *App) Sync() error {
 	a.Syncing.Store(true)
 	defer a.Syncing.Store(false)
 	a.StoreMu.Lock()
 	defer a.StoreMu.Unlock()
 	start := time.Now()
-	budget.Sync(a.Store, a.Client, a.SyncCfg)
+	err := budget.Sync(a.Store, a.Client, a.SyncCfg)
 	duration := time.Since(start)
 	a.LastSyncDuration.Store(int64(duration))
 	metrics.SyncDuration.Observe(duration.Seconds())
+	if err != nil {
+		metrics.SyncTotal.WithLabelValues("error").Inc()
+		return err
+	}
 	metrics.SyncTotal.WithLabelValues("success").Inc()
 	metrics.LastSyncTimestamp.Set(float64(time.Now().Unix()))
+	return nil
 }
 
 func (a *App) processTask(task types.Task) {
@@ -239,7 +244,14 @@ func (a *App) SaveRules(key string, cfg *types.RulesConfig) error {
 func (a *App) Run() error {
 	log.Println("[Init] 开始后台同步预算数据...")
 	go func() {
-		a.Sync()
+		for {
+			if err := a.Sync(); err != nil {
+				log.Printf("[Init] 首次同步失败，暂不启动消费队列: %v", err)
+				time.Sleep(time.Duration(a.Config.Sync.IntervalMinutes) * time.Minute)
+				continue
+			}
+			break
+		}
 		log.Println("[Init] 首次同步完成，开始消费队列")
 
 		// 消费循环
@@ -252,7 +264,9 @@ func (a *App) Run() error {
 		// 定时同步
 		for {
 			time.Sleep(time.Duration(a.Config.Sync.IntervalMinutes) * time.Minute)
-			a.Sync()
+			if err := a.Sync(); err != nil {
+				log.Printf("[Sync] 定时同步失败，继续使用上次成功缓存: %v", err)
+			}
 		}
 	}()
 

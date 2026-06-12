@@ -45,7 +45,9 @@ func main() {
 	if *syncNow {
 		fmt.Printf("合思预算校验服务 v%s\n", version)
 		a.Init()
-		a.Sync()
+		if err := a.Sync(); err != nil {
+			log.Fatalf("同步失败: %v", err)
+		}
 		fmt.Printf("同步完成，缓存条目: %d\n", a.Store.Count())
 		return
 	}

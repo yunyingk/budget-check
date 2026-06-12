@@ -151,6 +151,82 @@ func TestEvaluate_TwoTargets(t *testing.T) {
 	}
 }
 
+func TestEvaluate_MultiLevelBudgetUsesChildDimID(t *testing.T) {
+	store := budget.NewStore()
+	tree := &budget.Tree{
+		ID:   "T1",
+		Name: "成本中心预算",
+		Root: map[string]*budget.Node{
+			"CC1": {
+				DimCode:  "CC1",
+				DimType:  "CUSTOM",
+				DimId:    "E_system_costcenter",
+				NodeName: "成本中心1",
+				NodeID:   "N1",
+				Children: map[string]*budget.Node{
+					"F1": {
+						DimCode:  "F1",
+						DimType:  "CUSTOM",
+						DimId:    "u_费用类型档案",
+						NodeName: "费用类型1",
+						NodeID:   "N2",
+						IsLeaf:   true,
+						Children: map[string]*budget.Node{},
+					},
+				},
+			},
+		},
+	}
+	store.AddTree(tree)
+
+	cfg := &types.RulesConfig{
+		Targets: []types.RuleTarget{{
+			ID: "T1", Name: "成本中心预算",
+			Steps: []types.Step{{Action: "match_info_to_budget"}},
+		}},
+	}
+	e, _ := NewEngine(store, nil, cfg, map[string]string{
+		"E_system_costcenter": "成本中心",
+		"u_费用类型档案":          "费用类型",
+	})
+	action, comment := e.Evaluate(map[string]interface{}{
+		"E_system_costcenter": "CC1",
+		"u_费用类型档案":          "F1",
+	})
+	if action != "accept" {
+		t.Fatalf("expected accept, got %s/%s", action, comment)
+	}
+}
+
+func TestEvaluate_EmptyBudgetDimIDReportsInternalSyncProblem(t *testing.T) {
+	store := budget.NewStore()
+	store.AddTree(&budget.Tree{
+		ID:   "T1",
+		Name: "成本中心预算",
+		Root: map[string]*budget.Node{
+			"CC1": {
+				DimCode:  "CC1",
+				DimType:  "DEPART",
+				NodeName: "成本中心1",
+				NodeID:   "N1",
+				Children: map[string]*budget.Node{},
+			},
+		},
+	})
+
+	cfg := &types.RulesConfig{
+		Targets: []types.RuleTarget{{
+			ID: "T1", Name: "成本中心预算",
+			Steps: []types.Step{{Action: "match_info_to_budget"}},
+		}},
+	}
+	e, _ := NewEngine(store, nil, cfg, nil)
+	_, comment := e.Evaluate(map[string]interface{}{"E_system_costcenter": "CC1"})
+	if comment != "单据 成本中心预算：预算节点 成本中心1(CC1) 缺少维度ID" {
+		t.Fatalf("unexpected comment: %s", comment)
+	}
+}
+
 func TestSplitDetail_MergesFields(t *testing.T) {
 	units := []CheckUnit{{
 		Label: "单据",

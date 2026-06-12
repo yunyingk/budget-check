@@ -23,32 +23,33 @@ type SyncConfig struct {
 	Workers int
 }
 
-// Sync 同步所有匹配的预算包，构建树并写入 Store
-func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
+// Sync 同步所有匹配的预算包，构建树并写入 Store。
+// 同步必须完整成功，避免审批消费使用半成品预算树。
+func Sync(store *Store, client *ekb.Client, cfg SyncConfig) error {
 	start := time.Now()
 	log.Printf("[Sync] 开始同步预算数据... (并发数: %d)", cfg.Workers)
 
 	token, err := client.GetToken()
 	if err != nil {
 		log.Printf("[Sync] 获取Token失败: %v", err)
-		return
+		return err
 	}
 	log.Printf("[Sync] Token OK")
 
 	// 同步费用类型（全量拉取存内存）
 	if err := client.SyncFeeTypes(); err != nil {
 		log.Printf("[Sync] 同步费用类型失败: %v", err)
-	} else {
-		log.Printf("[Sync] 费用类型同步完成")
+		return err
 	}
+	log.Printf("[Sync] 费用类型同步完成")
 
-	store.Clear()
-	store.ResetSyncProgress()
+	nextStore := NewStore()
+	nextStore.ResetSyncProgress()
 
 	budgets, err := fetchBudgetList(client, token)
 	if err != nil {
 		log.Printf("[Sync] 获取预算列表失败: %v", err)
-		return
+		return err
 	}
 	log.Printf("[Sync] 全量预算包共 %d 个:", len(budgets))
 	for _, b := range budgets {
@@ -79,11 +80,16 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) {
 		}
 
 		log.Printf("[Sync] 同步: %s", bName)
-		buildTree(store, bID, bName, client, token, cfg.Workers)
-		log.Printf("    -> %s 完成, 当前总条目: %d", bName, store.Count())
+		if err := buildTree(nextStore, bID, bName, client, token, cfg.Workers); err != nil {
+			log.Printf("    [Error] 同步预算包失败: %s, err=%v", bName, err)
+			return err
+		}
+		log.Printf("    -> %s 完成, 当前总条目: %d", bName, nextStore.Count())
 	}
 
+	store.Replace(nextStore)
 	log.Printf("[Sync] 同步完成! 耗时: %v, 总维度条目: %d", time.Since(start), store.Count())
+	return nil
 }
 
 // rawNode 从 API 返回的原始节点数据
@@ -97,7 +103,7 @@ type rawNode struct {
 }
 
 // buildTree 从根节点开始逐层构建预算包树，边建边往 store 索引里写
-func buildTree(store *Store, bID, bName string, client *ekb.Client, token string, workers int) {
+func buildTree(store *Store, bID, bName string, client *ekb.Client, token string, workers int) error {
 	tree := &Tree{
 		ID:   bID,
 		Name: bName,
@@ -113,14 +119,14 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 	rootNodes, _, total, err := fetchNodes(client, queryURL, "", token, workers)
 	if err != nil {
 		log.Printf("    [Error] 拉取根节点失败: %v", err)
-		return
+		return err
 	}
 	if total > 0 {
 		log.Printf("    根节点子项总量: %d", total-1)
 	}
 
 	if len(rootNodes) == 0 {
-		return
+		return fmt.Errorf("预算包 %s(%s) 未同步到任何节点", bName, bID)
 	}
 
 	store.addTreeRef(tree)
@@ -186,12 +192,13 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		for res := range ch {
 			if res.err != nil {
 				log.Printf("    [Warn] 节点 %s 钻取失败: %v", res.task.nodeID, res.err)
-				continue
+				return fmt.Errorf("节点 %s 钻取失败: %w", res.task.nodeID, res.err)
 			}
 			for _, rn := range res.children {
 				node := &Node{
 					DimCode:  rn.dimCode,
 					DimType:  rn.dimType,
+					DimId:    rn.dimId,
 					NodeName: rn.nodeName,
 					NodeID:   rn.nodeID,
 					IsLeaf:   rn.isLeaf,
@@ -209,6 +216,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		pendingDrills = nextDrills
 		layer++
 	}
+	return nil
 }
 
 // fetchBudgetList 获取预算包列表
@@ -272,7 +280,10 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 		return nil, nil, totalCount, nil
 	}
 
-	allNodes, nextIDs := parseRawNodes(nodes[1:])
+	allNodes, nextIDs, err := parseRawNodes(nodes[1:])
+	if err != nil {
+		return nil, nil, totalCount, err
+	}
 
 	if len(nodes)-1 < pageSize {
 		return allNodes, nextIDs, totalCount, nil
@@ -336,7 +347,11 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 				return
 			}
 
-			rows, children := parseRawNodes(pNodes[1:])
+			rows, children, err := parseRawNodes(pNodes[1:])
+			if err != nil {
+				ch <- pageResult{err: err, page: p}
+				return
+			}
 			ch <- pageResult{nodes: rows, children: children, page: p}
 		}(page)
 	}
@@ -349,7 +364,7 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 	for pr := range ch {
 		if pr.err != nil {
 			log.Printf("    [Warn] 分页请求失败 page=%d: %v", pr.page, pr.err)
-			continue
+			return nil, nil, totalCount, fmt.Errorf("分页请求失败 page=%d: %w", pr.page, pr.err)
 		}
 		allNodes = append(allNodes, pr.nodes...)
 		nextIDs = append(nextIDs, pr.children...)
@@ -358,43 +373,68 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 	return allNodes, nextIDs, totalCount, nil
 }
 
-func parseRawNodes(nodes []interface{}) ([]rawNode, []string) {
+func parseRawNodes(nodes []interface{}) ([]rawNode, []string, error) {
 	var result []rawNode
 	var nextIDs []string
 
 	for _, n := range nodes {
-		node, _ := n.(map[string]interface{})
+		node, ok := n.(map[string]interface{})
+		if !ok {
+			return nil, nil, fmt.Errorf("预算节点格式错误: %v", n)
+		}
 		nID, _ := node["nodeId"].(string)
+		if nID == "" {
+			return nil, nil, fmt.Errorf("预算节点缺少 nodeId: %v", node)
+		}
 		nName, _ := node["name"].(string)
 		if nName == "" {
 			nName, _ = node["code"].(string)
 		}
-		isLeaf, _ := node["isLeaf"].(bool)
+		if nName == "" {
+			return nil, nil, fmt.Errorf("预算节点缺少 name/code: nodeId=%s", nID)
+		}
+		isLeaf, ok := node["isLeaf"].(bool)
+		if !ok {
+			return nil, nil, fmt.Errorf("预算节点缺少 isLeaf: nodeId=%s name=%s", nID, nName)
+		}
 
 		if !isLeaf {
 			nextIDs = append(nextIDs, nID)
 		}
 
-		contents, _ := node["content"].([]interface{})
+		contents, ok := node["content"].([]interface{})
+		if !ok || len(contents) == 0 {
+			return nil, nil, fmt.Errorf("预算节点缺少 content: nodeId=%s name=%s", nID, nName)
+		}
 		for _, c := range contents {
-			content, _ := c.(map[string]interface{})
-			dimCode, _ := content["contentId"].(string)
-			dimType, _ := content["dimensionType"].(string)
-			dimId, _ := content["dimensionId"].(string)
-			if dimCode != "" {
-				result = append(result, rawNode{
-					nodeID:   nID,
-					nodeName: nName,
-					dimCode:  dimCode,
-					dimType:  dimType,
-					dimId:    dimId,
-					isLeaf:   isLeaf,
-				})
+			content, ok := c.(map[string]interface{})
+			if !ok {
+				return nil, nil, fmt.Errorf("预算节点 content 格式错误: nodeId=%s name=%s content=%v", nID, nName, c)
 			}
+			dimCode, _ := content["contentId"].(string)
+			if dimCode == "" {
+				return nil, nil, fmt.Errorf("预算节点缺少 contentId: nodeId=%s name=%s", nID, nName)
+			}
+			dimType, _ := content["dimensionType"].(string)
+			if dimType == "" {
+				return nil, nil, fmt.Errorf("预算节点缺少 dimensionType: nodeId=%s name=%s contentId=%s", nID, nName, dimCode)
+			}
+			dimId, _ := content["dimensionId"].(string)
+			if dimId == "" {
+				return nil, nil, fmt.Errorf("预算节点缺少 dimensionId: nodeId=%s name=%s contentId=%s dimensionType=%s", nID, nName, dimCode, dimType)
+			}
+			result = append(result, rawNode{
+				nodeID:   nID,
+				nodeName: nName,
+				dimCode:  dimCode,
+				dimType:  dimType,
+				dimId:    dimId,
+				isLeaf:   isLeaf,
+			})
 		}
 	}
 
-	return result, nextIDs
+	return result, nextIDs, nil
 }
 
 func intToStr(n int) string {

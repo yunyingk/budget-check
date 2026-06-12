@@ -166,7 +166,10 @@ func (s *Store) Replace(newStore *Store) {
 	s.trees = newStore.trees
 	s.index = newStore.index
 	s.treeOf = newStore.treeOf
+	s.treeCount = newStore.treeCount
+	s.treeNodeSeen = newStore.treeNodeSeen
 	s.updatedAt = newStore.updatedAt
+	s.syncProgress.Store(newStore.syncProgress.Load())
 }
 
 func (s *Store) Count() int {

@@ -23,8 +23,7 @@ func LoadConfig(path string) (*Config, error) {
 		if err != nil {
 			return nil, err
 		}
-		cfg.BaseDir = filepath.Dir(resolveAbs(path))
-		cfg.ConfigPath = resolveAbs(path)
+		setRuntimePaths(cfg, path)
 		return cfg, nil
 	}
 
@@ -41,12 +40,18 @@ func LoadConfig(path string) (*Config, error) {
 			if err != nil {
 				return nil, err
 			}
-			cfg.BaseDir = filepath.Dir(resolveAbs(p))
-			cfg.ConfigPath = resolveAbs(p)
+			setRuntimePaths(cfg, p)
 			return cfg, nil
 		}
 	}
 	return nil, fmt.Errorf("未找到配置文件，已搜索: %v", searchPaths)
+}
+
+func setRuntimePaths(cfg *Config, configPath string) {
+	absConfigPath := resolveAbs(configPath)
+	cfg.ConfigPath = absConfigPath
+	cfg.ConfigDir = filepath.Dir(absConfigPath)
+	cfg.BaseDir = cfg.ConfigDir
 }
 
 // resolveAbs 将路径转为绝对路径，失败则返回原路径
@@ -108,6 +113,11 @@ func SaveRules(path string, cfg *types.RulesConfig) error {
 	data, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("序列化规则失败: %w", err)
+	}
+	if dir := filepath.Dir(path); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("创建规则目录失败: %w", err)
+		}
 	}
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("写入规则文件失败: %w", err)

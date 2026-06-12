@@ -26,7 +26,7 @@ type Deps struct {
 	Queue            *queue.Queue
 	Syncing          func() bool
 	Version          string
-	OnSync           func()                        // 手动同步回调
+	OnSync           func() error                  // 手动同步回调
 	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig
 	SaveRulesFunc    func(string, *types.RulesConfig) error // 保存规则+重编译引擎
 	CreateWebhookFunc func(string, string) error   // 创建新 webhook
@@ -135,7 +135,11 @@ func Register(mux *http.ServeMux, deps Deps) {
 			return
 		}
 		if deps.OnSync != nil {
-			go deps.OnSync()
+			go func() {
+				if err := deps.OnSync(); err != nil {
+					log.Printf("[Sync] 手动同步失败: %v", err)
+				}
+			}()
 		}
 		writeJSON(w, 200, map[string]interface{}{
 			"success":       true,

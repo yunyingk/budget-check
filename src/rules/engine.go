@@ -295,6 +295,9 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		}
 
 		dimName := e.getDimName(first.DimId)
+		if first.DimId == "" {
+			return fmt.Sprintf("%s：预算节点 %s 缺少维度ID", target.def.Name, e.getNodeDisplayName(first.DimCode))
+		}
 		fieldValue, _ := unit.Fields[first.DimId].(string)
 		if fieldValue == "" {
 			return fmt.Sprintf("%s：缺少%s", target.def.Name, dimName)
