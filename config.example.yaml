@@ -46,4 +46,5 @@ web:
 dimension_names:
   E_system_costcenter: "成本中心"
   u_费用类型档案: "费用类型"
+  u_预算管控: "预算管控"
   项目: "项目"

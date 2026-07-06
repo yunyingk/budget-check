@@ -277,6 +277,7 @@ func (e *Engine) getNodeDisplayName(dimCode string) string {
 
 // matchToBudget 把单据字段逐层匹配到预算树
 // 每层用 DimId 作为字段名取值，PROJECT 类型向上找祖先，其他类型精确匹配
+// 失败时返回含完整匹配链路的拒绝理由（单行，分号分隔），便于客户理解失败原因
 func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 	tree := e.store.GetTreeByID(target.def.ID)
 	if tree == nil {
@@ -286,8 +287,12 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		return fmt.Sprintf("%s：预算包为空", target.def.Name)
 	}
 
+	// 匹配链路：收集每一层描述，失败时拼进返回字符串
+	var trace []string
 	currentNodes := tree.Root
+	layer := 0
 	for len(currentNodes) > 0 {
+		layer++
 		var first *budget.Node
 		for _, n := range currentNodes {
 			first = n
@@ -300,6 +305,7 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 		}
 		fieldValue, _ := unit.Fields[first.DimId].(string)
 		if fieldValue == "" {
+			// 缺少字段值：直接返回，链路无意义
 			return fmt.Sprintf("%s：缺少%s", target.def.Name, dimName)
 		}
 
@@ -308,36 +314,109 @@ func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 			set[code] = true
 		}
 
+		fieldDisplay := e.getNodeDisplayName(fieldValue)
+		layerPrefix := fmt.Sprintf("第%d层 %s %s", layer, dimName, fieldDisplay)
+
 		var matched *budget.Node
+		matchedByAncestor := false
 		if first.DimType == "PROJECT" {
 			id, found := e.client.FindProjectAncestorInTree(fieldValue, set, 5)
 			if !found {
-				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
+				chain := e.formatAncestorChain(fieldValue, 5)
+				log.Printf("[Engine] %s %s 第%d层 PROJECT 未命中: dimId=%s fieldValue=%s 父链=%s 候选=%s",
+					target.def.Name, unit.Label, layer, first.DimId, fieldValue, chain, e.formatCandidates(currentNodes))
+				return e.buildTraceMessage(target.def.Name, trace, layerPrefix+"不在预算包内")
 			}
 			matched = currentNodes[id]
+			matchedByAncestor = fieldValue != id
 		} else if first.DimType == "DEPART" {
 			id, found := e.client.FindDepartmentAncestorInTree(fieldValue, set, 5)
 			if !found {
-				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
+				log.Printf("[Engine] %s %s 第%d层 DEPART 未命中: dimId=%s fieldValue=%s 候选=%s",
+					target.def.Name, unit.Label, layer, first.DimId, fieldValue, e.formatCandidates(currentNodes))
+				return e.buildTraceMessage(target.def.Name, trace, layerPrefix+"不在预算包内")
 			}
 			matched = currentNodes[id]
+			matchedByAncestor = fieldValue != id
 		} else if first.DimType == "FEE_TYPE" {
 			id, found := e.client.FindFeeTypeAncestorInTree(fieldValue, set, 5)
 			if !found {
-				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
+				log.Printf("[Engine] %s %s 第%d层 FEE_TYPE 未命中: dimId=%s fieldValue=%s 候选=%s",
+					target.def.Name, unit.Label, layer, first.DimId, fieldValue, e.formatCandidates(currentNodes))
+				return e.buildTraceMessage(target.def.Name, trace, layerPrefix+"不在预算包内")
 			}
 			matched = currentNodes[id]
+			matchedByAncestor = fieldValue != id
 		} else {
 			if node, ok := currentNodes[fieldValue]; ok {
 				matched = node
 			} else {
-				return fmt.Sprintf("%s：%s %s 不在预算包内", target.def.Name, dimName, e.getNodeDisplayName(fieldValue))
+				log.Printf("[Engine] %s %s 第%d层 精确匹配未命中: dimId=%s fieldValue=%s 候选=%s",
+					target.def.Name, unit.Label, layer, first.DimId, fieldValue, e.formatCandidates(currentNodes))
+				return e.buildTraceMessage(target.def.Name, trace, layerPrefix+"不在预算包内")
 			}
 		}
+
+		// 记录本层匹配结果到链路
+		if matchedByAncestor {
+			trace = append(trace, fmt.Sprintf("%s不在预算包内，经祖先匹配→%s", layerPrefix, nodeRef(matched)))
+		} else {
+			trace = append(trace, fmt.Sprintf("%s命中", layerPrefix))
+		}
+		log.Printf("[Engine] %s %s 第%d层 命中: dimType=%s dimId=%s fieldValue=%s matched=%s isLeaf=%v",
+			target.def.Name, unit.Label, layer, first.DimType, first.DimId, fieldValue, nodeRef(matched), matched.IsLeaf)
 
 		currentNodes = matched.Children
 	}
 	return ""
+}
+
+// buildTraceMessage 拼装失败消息：前缀 + 已走过的层 + 失败层
+func (e *Engine) buildTraceMessage(targetName string, trace []string, failedLayer string) string {
+	all := append([]string{}, trace...)
+	all = append(all, failedLayer)
+	return fmt.Sprintf("%s校验未通过。匹配链路：%s", targetName, joinStrings(all, "；"))
+}
+
+// nodeRef 节点引用，格式 "名称(ID)"（树内节点直接用 NodeName，无需 API）
+func nodeRef(node *budget.Node) string {
+	if node == nil {
+		return ""
+	}
+	if node.NodeName != "" {
+		return fmt.Sprintf("%s(%s)", node.NodeName, node.DimCode)
+	}
+	return node.DimCode
+}
+
+// formatCandidates 把当前层候选节点拼成 "[A(idA)、B(idB)]"，用于日志排查
+func (e *Engine) formatCandidates(nodes map[string]*budget.Node) string {
+	if len(nodes) == 0 {
+		return "[]"
+	}
+	refs := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		refs = append(refs, nodeRef(n))
+	}
+	return "[" + joinStrings(refs, "、") + "]"
+}
+
+// formatAncestorChain 沿父链打印 id 的祖先路径，用于日志排查（仅 PROJECT/通用维度）
+func (e *Engine) formatAncestorChain(id string, maxLevels int) string {
+	if e.client == nil {
+		return id
+	}
+	current := id
+	parts := []string{e.getNodeDisplayName(current)}
+	for i := 0; i < maxLevels; i++ {
+		dim, err := e.client.GetProjectDimension(current)
+		if err != nil || dim.ParentID == "" {
+			break
+		}
+		current = dim.ParentID
+		parts = append(parts, e.getNodeDisplayName(current))
+	}
+	return joinStrings(parts, "→")
 }
 
 func shallowCopy(m map[string]interface{}) map[string]interface{} {

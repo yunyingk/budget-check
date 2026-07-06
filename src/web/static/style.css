@@ -175,7 +175,7 @@ header .version {
 .history-item .time { color: var(--text-secondary); width: 55px; flex-shrink: 0; font-size: 12px; }
 .history-item .code { width: 120px; flex-shrink: 0; font-family: monospace; font-size: 12px; }
 .history-item .action { width: 50px; flex-shrink: 0; }
-.history-item .comment { color: #666; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.history-item .comment { color: #666; flex: 1; white-space: pre-line; word-break: break-all; line-height: 1.5; }
 
 /* History timeline dots */
 .history-dot {
