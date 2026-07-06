@@ -2,6 +2,7 @@ package ekb
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -33,10 +34,10 @@ type Client struct {
 	expiry time.Time
 	client *http.Client
 
-	dimCache    map[string]*dimCacheEntry
-	dimMu       sync.RWMutex
-	feeTypes    map[string]*Dimension // feeTypeId -> Dimension (含 ParentID)
-	feeTypesMu  sync.RWMutex
+	dimCache   map[string]*dimCacheEntry
+	dimMu      sync.RWMutex
+	feeTypes   map[string]*Dimension // feeTypeId -> Dimension (含 ParentID)
+	feeTypesMu sync.RWMutex
 }
 
 func NewClient(host, appKey, secret string) *Client {
@@ -52,11 +53,20 @@ func NewClient(host, appKey, secret string) *Client {
 
 // GetToken 获取 accessToken，自动缓存，过期前 10 分钟刷新
 func (c *Client) GetToken() (string, error) {
+	return c.GetTokenContext(context.Background())
+}
+
+func (c *Client) GetTokenContext(ctx context.Context) (string, error) {
 	if c.token != "" && time.Now().Before(c.expiry) {
 		return c.token, nil
 	}
 	body, _ := json.Marshal(map[string]string{"appKey": c.AppKey, "appSecurity": c.Secret})
-	resp, err := c.client.Post(c.Host+"/api/openapi/v1/auth/getAccessToken", "application/json", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Host+"/api/openapi/v1/auth/getAccessToken", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.client.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -81,20 +91,24 @@ func (c *Client) Get(rawURL string) (*http.Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	sep := "?"
-	if strings.Contains(rawURL, "?") {
-		sep = "&"
-	}
-	return c.client.Get(rawURL + sep + "accessToken=" + url.QueryEscape(token))
+	return c.GetWithToken(rawURL, token)
 }
 
 // GetWithToken 使用指定 token 发起 GET 请求
 func (c *Client) GetWithToken(rawURL, token string) (*http.Response, error) {
+	return c.GetWithTokenContext(context.Background(), rawURL, token)
+}
+
+func (c *Client) GetWithTokenContext(ctx context.Context, rawURL, token string) (*http.Response, error) {
 	sep := "?"
 	if strings.Contains(rawURL, "?") {
 		sep = "&"
 	}
-	return c.client.Get(rawURL + sep + "accessToken=" + url.QueryEscape(token))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL+sep+"accessToken="+url.QueryEscape(token), nil)
+	if err != nil {
+		return nil, err
+	}
+	return c.client.Do(req)
 }
 
 // Post 发起 POST 请求，自动附加 accessToken 参数
@@ -264,13 +278,17 @@ func (c *Client) FindDepartmentAncestorInTree(id string, tree map[string]bool, m
 
 // SyncFeeTypes 全量同步费用类型到内存缓存
 func (c *Client) SyncFeeTypes() error {
-	token, err := c.GetToken()
+	return c.SyncFeeTypesContext(context.Background())
+}
+
+func (c *Client) SyncFeeTypesContext(ctx context.Context) error {
+	token, err := c.GetTokenContext(ctx)
 	if err != nil {
 		return err
 	}
 
 	u := c.HostURL("/api/openapi/v1/feeTypes")
-	resp, err := c.GetWithToken(u, token)
+	resp, err := c.GetWithTokenContext(ctx, u, token)
 	if err != nil {
 		return err
 	}

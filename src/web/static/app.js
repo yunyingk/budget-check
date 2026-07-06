@@ -108,24 +108,28 @@ const app = createApp({
 
     let refreshTimer = null
 
-    // Format ISO timestamp to HH:MM:SS
+    function formatDateTime(d) {
+      const pad = n => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+    }
+
+    // Format timestamp to YYYY-MM-DD HH:mm:ss
     function formatTimestamp(ts) {
       if (!ts) return '-'
       if (typeof ts === 'number') {
-        // unix seconds
         const d = new Date(ts * 1000)
-        return d.toLocaleTimeString('zh-CN', { hour12: false })
+        return formatDateTime(d)
       }
       const d = new Date(ts)
       if (isNaN(d)) return ts
-      return d.toLocaleTimeString('zh-CN', { hour12: false })
+      return formatDateTime(d)
     }
 
     function formatSyncTime(s) {
       if (!s) return '-'
       const d = new Date(s)
       if (isNaN(d)) return s
-      return d.toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      return formatDateTime(d)
     }
 
     // Fetch status
@@ -203,7 +207,7 @@ const app = createApp({
       try {
         const r = await fetch('/api/sync', { method: 'POST' })
         const d = await r.json()
-        syncMsg.value = d.ok ? '同步完成' : ('失败: ' + (d.error || '未知错误'))
+        syncMsg.value = d.ok || d.success ? (d.message || '同步已启动') : ('失败: ' + (d.error || '未知错误'))
         await refresh()
       } catch (e) {
         syncMsg.value = '请求失败: ' + e.message

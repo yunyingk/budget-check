@@ -19,20 +19,20 @@ var staticFS embed.FS
 
 // Deps web 层运行期依赖
 type Deps struct {
-	Config           *config.Config
-	Store            *budget.Store
-	Checker          *consumer.Checker
-	TokenStore       *TokenStore
-	Queue            *queue.Queue
-	Syncing          func() bool
-	Version          string
-	OnSync           func() error                  // 手动同步回调
-	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig
-	SaveRulesFunc    func(string, *types.RulesConfig) error // 保存规则+重编译引擎
-	CreateWebhookFunc func(string, string) error   // 创建新 webhook
-	StartTime        time.Time                     // 服务启动时间
-	LastSyncDuration *atomic.Int64                 // 上次同步耗时（纳秒）
-	Client           *ekb.Client                   // 合思客户端（用于获取费用类型数量）
+	Config            *config.Config
+	Store             *budget.Store
+	Checker           *consumer.Checker
+	TokenStore        *TokenStore
+	Queue             *queue.Queue
+	Syncing           func() bool
+	Version           string
+	OnSync            func() error                           // 手动同步回调
+	RulesCfgs         map[string]*types.RulesConfig          // webhookKey → RulesConfig
+	SaveRulesFunc     func(string, *types.RulesConfig) error // 保存规则+重编译引擎
+	CreateWebhookFunc func(string, string) error             // 创建新 webhook
+	StartTime         time.Time                              // 服务启动时间
+	LastSyncDuration  *atomic.Int64                          // 上次同步耗时（纳秒）
+	Client            *ekb.Client                            // 合思客户端（用于获取费用类型数量）
 }
 
 // Register 向 mux 注册所有路由
@@ -134,6 +134,15 @@ func Register(mux *http.ServeMux, deps Deps) {
 			writeJSON(w, 403, map[string]string{"error": "密码错误"})
 			return
 		}
+		if deps.Syncing != nil && deps.Syncing() {
+			writeJSON(w, 202, map[string]interface{}{
+				"ok":      true,
+				"success": true,
+				"message": "同步已在进行中",
+				"syncing": true,
+			})
+			return
+		}
 		if deps.OnSync != nil {
 			go func() {
 				if err := deps.OnSync(); err != nil {
@@ -142,6 +151,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 			}()
 		}
 		writeJSON(w, 200, map[string]interface{}{
+			"ok":            true,
 			"success":       true,
 			"message":       "同步已启动",
 			"started_at":    time.Now().Format(time.RFC3339),

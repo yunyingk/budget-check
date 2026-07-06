@@ -30,6 +30,7 @@ type SyncConfig struct {
 	IntervalMinutes int `yaml:"interval_minutes"`
 	Workers         int `yaml:"workers"`
 	QueueSize       int `yaml:"queue_size"`
+	TimeoutMinutes  int `yaml:"timeout_minutes"`
 }
 
 // LogConfig 日志配置
@@ -47,14 +48,14 @@ type WebConfig struct {
 
 // Config 全局运行时配置
 type Config struct {
-	Server          ServerConfig            `yaml:"server"`
-	Ekb             EkbConfig               `yaml:"ekuaibao"`
-	Webhooks        map[string]WebhookEntry `yaml:"webhooks"`
-	Sync            SyncConfig              `yaml:"sync"`
-	Logging         LogConfig               `yaml:"logging"`
-	Web             WebConfig               `yaml:"web"`
-	DimensionNames  map[string]string       `yaml:"dimension_names"` // 字段名→中文名映射
-	BaseDir         string                  `yaml:"-"` // 配置基准目录（运行时填充，用于解析 rules 等相对路径）
-	ConfigDir       string                  `yaml:"-"` // 配置文件所在目录（运行时填充）
-	ConfigPath      string                  `yaml:"-"` // 配置文件完整路径（运行时填充）
+	Server         ServerConfig            `yaml:"server"`
+	Ekb            EkbConfig               `yaml:"ekuaibao"`
+	Webhooks       map[string]WebhookEntry `yaml:"webhooks"`
+	Sync           SyncConfig              `yaml:"sync"`
+	Logging        LogConfig               `yaml:"logging"`
+	Web            WebConfig               `yaml:"web"`
+	DimensionNames map[string]string       `yaml:"dimension_names"` // 字段名→中文名映射
+	BaseDir        string                  `yaml:"-"`               // 配置基准目录（运行时填充，用于解析 rules 等相对路径）
+	ConfigDir      string                  `yaml:"-"`               // 配置文件所在目录（运行时填充）
+	ConfigPath     string                  `yaml:"-"`               // 配置文件完整路径（运行时填充）
 }

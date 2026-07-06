@@ -2,6 +2,7 @@ package budget
 
 import (
 	"budget/src/ekb"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,17 +20,21 @@ type Target struct {
 
 // SyncConfig 同步配置
 type SyncConfig struct {
-	Targets []Target
-	Workers int
+	Targets        []Target
+	Workers        int
+	TimeoutMinutes int
 }
 
 // Sync 同步所有匹配的预算包，构建树并写入 Store。
 // 同步必须完整成功，避免审批消费使用半成品预算树。
-func Sync(store *Store, client *ekb.Client, cfg SyncConfig) error {
+func Sync(ctx context.Context, store *Store, client *ekb.Client, cfg SyncConfig) error {
+	if cfg.Workers <= 0 {
+		cfg.Workers = 10
+	}
 	start := time.Now()
 	log.Printf("[Sync] 开始同步预算数据... (并发数: %d)", cfg.Workers)
 
-	token, err := client.GetToken()
+	token, err := client.GetTokenContext(ctx)
 	if err != nil {
 		log.Printf("[Sync] 获取Token失败: %v", err)
 		return err
@@ -37,7 +42,7 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) error {
 	log.Printf("[Sync] Token OK")
 
 	// 同步费用类型（全量拉取存内存）
-	if err := client.SyncFeeTypes(); err != nil {
+	if err := client.SyncFeeTypesContext(ctx); err != nil {
 		log.Printf("[Sync] 同步费用类型失败: %v", err)
 		return err
 	}
@@ -46,13 +51,16 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) error {
 	nextStore := NewStore()
 	nextStore.ResetSyncProgress()
 
-	budgets, err := fetchBudgetList(client, token)
+	budgets, err := fetchBudgetList(ctx, client, token)
 	if err != nil {
 		log.Printf("[Sync] 获取预算列表失败: %v", err)
 		return err
 	}
 	log.Printf("[Sync] 全量预算包共 %d 个:", len(budgets))
 	for _, b := range budgets {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		bName, _ := b["name"].(string)
 		bID, _ := b["id"].(string)
 		log.Printf("    [%s] %s", bID, bName)
@@ -80,7 +88,7 @@ func Sync(store *Store, client *ekb.Client, cfg SyncConfig) error {
 		}
 
 		log.Printf("[Sync] 同步: %s", bName)
-		if err := buildTree(nextStore, bID, bName, client, token, cfg.Workers); err != nil {
+		if err := buildTree(ctx, nextStore, bID, bName, client, token, cfg.Workers); err != nil {
 			log.Printf("    [Error] 同步预算包失败: %s, err=%v", bName, err)
 			return err
 		}
@@ -103,7 +111,7 @@ type rawNode struct {
 }
 
 // buildTree 从根节点开始逐层构建预算包树，边建边往 store 索引里写
-func buildTree(store *Store, bID, bName string, client *ekb.Client, token string, workers int) error {
+func buildTree(ctx context.Context, store *Store, bID, bName string, client *ekb.Client, token string, workers int) error {
 	tree := &Tree{
 		ID:   bID,
 		Name: bName,
@@ -116,7 +124,7 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 	}
 	queryURL := client.HostURL("/api/openapi/v2/budgets/" + realID + "/query")
 
-	rootNodes, _, total, err := fetchNodes(client, queryURL, "", token, workers)
+	rootNodes, _, total, err := fetchNodes(ctx, client, queryURL, "", token, workers)
 	if err != nil {
 		log.Printf("    [Error] 拉取根节点失败: %v", err)
 		return err
@@ -159,6 +167,9 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 
 	layer := 2
 	for len(pendingDrills) > 0 {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		log.Printf("    [Layer %d] 钻取 %d 个节点... 当前总条目: %d", layer, len(pendingDrills), store.Count())
 
 		type drillResult struct {
@@ -173,12 +184,16 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 		var wg sync.WaitGroup
 
 		for _, task := range pendingDrills {
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 			wg.Add(1)
 			go func(t drillTask) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				nodes, _, _, err := fetchNodes(client, queryURL, t.nodeID, token, workers)
+				nodes, _, _, err := fetchNodes(ctx, client, queryURL, t.nodeID, token, workers)
 				ch <- drillResult{parent: t.parent, children: nodes, task: t, err: err}
 			}(task)
 		}
@@ -220,9 +235,9 @@ func buildTree(store *Store, bID, bName string, client *ekb.Client, token string
 }
 
 // fetchBudgetList 获取预算包列表
-func fetchBudgetList(client *ekb.Client, token string) ([]map[string]interface{}, error) {
+func fetchBudgetList(ctx context.Context, client *ekb.Client, token string) ([]map[string]interface{}, error) {
 	u := client.HostURL("/api/openapi/v2/budgets?start=0&count=100")
-	resp, err := client.GetWithToken(u, token)
+	resp, err := client.GetWithTokenContext(ctx, u, token)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +260,7 @@ func fetchBudgetList(client *ekb.Client, token string) ([]map[string]interface{}
 }
 
 // fetchNodes 拉取预算节点（支持分页并发）
-func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int) ([]rawNode, []string, int, error) {
+func fetchNodes(ctx context.Context, client *ekb.Client, queryURL, nodeID, token string, workers int) ([]rawNode, []string, int, error) {
 	pageSize := 100
 
 	params := url.Values{
@@ -257,16 +272,16 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 		params.Set("nodeId", nodeID)
 	}
 
-	resp, err := client.GetWithToken(queryURL+"?"+params.Encode(), token)
+	resp, err := client.GetWithTokenContext(ctx, queryURL+"?"+params.Encode(), token)
 	if err != nil {
 		return nil, nil, 0, err
 	}
+	defer resp.Body.Close()
 
 	var result map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, nil, 0, fmt.Errorf("解析节点响应失败: %w", err)
 	}
-	resp.Body.Close()
 
 	val, _ := result["value"].(map[string]interface{})
 	nodes, _ := val["nodes"].([]interface{})
@@ -310,7 +325,11 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 	var wg sync.WaitGroup
 
 	for page := 1; page < totalPages; page++ {
-		sem <- struct{}{}
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			return nil, nil, totalCount, ctx.Err()
+		}
 		wg.Add(1)
 		go func(p int) {
 			defer wg.Done()
@@ -326,18 +345,18 @@ func fetchNodes(client *ekb.Client, queryURL, nodeID, token string, workers int)
 				pParams.Set("nodeId", nodeID)
 			}
 
-			pResp, pErr := client.GetWithToken(queryURL+"?"+pParams.Encode(), token)
+			pResp, pErr := client.GetWithTokenContext(ctx, queryURL+"?"+pParams.Encode(), token)
 			if pErr != nil {
 				ch <- pageResult{err: pErr, page: p}
 				return
 			}
+			defer pResp.Body.Close()
 
 			var pResult map[string]interface{}
 			if err := json.NewDecoder(pResp.Body).Decode(&pResult); err != nil {
 				ch <- pageResult{err: fmt.Errorf("解析分页响应失败: %w", err), page: p}
 				return
 			}
-			pResp.Body.Close()
 
 			pVal, _ := pResult["value"].(map[string]interface{})
 			pNodes, _ := pVal["nodes"].([]interface{})

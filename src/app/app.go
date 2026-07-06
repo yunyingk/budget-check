@@ -11,10 +11,13 @@ import (
 	"budget/src/rules"
 	"budget/src/types"
 	"budget/src/web"
+	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -39,6 +42,8 @@ type App struct {
 	StartTime        time.Time    // 服务启动时间
 	LastSyncDuration atomic.Int64 // 上次同步耗时（纳秒）
 }
+
+var ErrSyncAlreadyRunning = errors.New("同步已在进行中")
 
 // New 创建 App 实例（不初始化组件）
 func New(cfg *config.Config, logger *rotatelog.RotatingLogger) *App {
@@ -78,7 +83,11 @@ func (a *App) Init() error {
 	for _, t := range targetMap {
 		targets = append(targets, t)
 	}
-	a.SyncCfg = budget.SyncConfig{Targets: targets, Workers: workers}
+	timeoutMinutes := a.Config.Sync.TimeoutMinutes
+	if timeoutMinutes < 15 {
+		timeoutMinutes = 15
+	}
+	a.SyncCfg = budget.SyncConfig{Targets: targets, Workers: workers, TimeoutMinutes: timeoutMinutes}
 
 	// 收集所有 webhook 的 sign_key，并为每个 webhook 加载独立规则引擎
 	signKeys := make(map[string]string)
@@ -122,12 +131,15 @@ func (a *App) Init() error {
 
 // Sync 手动触发一次预算同步（带锁保护）
 func (a *App) Sync() error {
-	a.Syncing.Store(true)
+	if !a.Syncing.CompareAndSwap(false, true) {
+		return ErrSyncAlreadyRunning
+	}
 	defer a.Syncing.Store(false)
-	a.StoreMu.Lock()
-	defer a.StoreMu.Unlock()
 	start := time.Now()
-	err := budget.Sync(a.Store, a.Client, a.SyncCfg)
+	timeout := time.Duration(a.SyncCfg.TimeoutMinutes) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	err := budget.Sync(ctx, a.Store, a.Client, a.SyncCfg)
 	duration := time.Since(start)
 	a.LastSyncDuration.Store(int64(duration))
 	metrics.SyncDuration.Observe(duration.Seconds())
@@ -147,9 +159,7 @@ func (a *App) processTask(task types.Task) {
 			a.Checker.AddHistory(task.Code, "panic", fmt.Sprintf("任务处理异常: %v", r))
 		}
 	}()
-	a.StoreMu.RLock()
 	action, comment := a.Checker.Evaluate(task)
-	a.StoreMu.RUnlock()
 	if err := a.Checker.CallbackApproval(task, action, comment); err != nil {
 		failComment := fmt.Sprintf("%s；回调审批失败: %v", comment, err)
 		log.Printf("[Consumer] 回调审批失败: taskID=%s code=%s flowID=%s action=%s error=%v", task.ID, task.Code, task.FlowID, action, err)
@@ -289,9 +299,11 @@ func (a *App) Run() error {
 		Client:            a.Client,
 	})
 
-	// 尝试启动服务，端口被占用时自动+1
 	port := a.Config.Server.Port
-	maxRetries := 10
+	maxRetries := 1
+	if allowPortFallback() {
+		maxRetries = 10
+	}
 	for i := 0; i < maxRetries; i++ {
 		addr := fmt.Sprintf("0.0.0.0:%d", port)
 		log.Printf("服务启动: %s", addr)
@@ -300,11 +312,11 @@ func (a *App) Run() error {
 		listener, err := net.Listen("tcp", addr)
 		if err != nil {
 			if i < maxRetries-1 {
-				log.Printf("[WARN] 端口 %d 被占用，尝试端口 %d", port, port+1)
+				log.Printf("[WARN] 端口 %d 被占用，测试环境尝试端口 %d", port, port+1)
 				port++
 				continue
 			}
-			return fmt.Errorf("无法启动服务，已尝试端口 %d-%d: %w", a.Config.Server.Port, port, err)
+			return fmt.Errorf("无法启动服务，端口 %d 不可用: %w", a.Config.Server.Port, err)
 		}
 
 		// 监听成功，启动 HTTP 服务
@@ -312,4 +324,8 @@ func (a *App) Run() error {
 	}
 
 	return fmt.Errorf("无法启动服务，已尝试 %d 次", maxRetries)
+}
+
+func allowPortFallback() bool {
+	return os.Getenv("BUDGET_ALLOW_PORT_FALLBACK") == "1" || os.Getenv("APP_ENV") == "test"
 }
