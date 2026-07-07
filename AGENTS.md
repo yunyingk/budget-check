@@ -6,15 +6,16 @@ Go 项目，go.mod 在根目录，源码在 src/，运行时配置与 exe 同目
 # 统一构建脚本（自动读取 version.go 中的版本号，通过 ldflags 注入）
 ./build.sh
 
-# 手动构建（不推荐，容易输错版本号）
-# GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=0.5.2" -o dist/budget-check.exe ./src
-# go build -ldflags "-X main.version=0.5.2" -o dist/budget-check-mac ./src
+# 手动构建（不推荐，容易输错版本号；版本号取自 src/version.go 当前值，下同）
+# GOOS=windows GOARCH=amd64 go build -ldflags "-X main.version=<version>" -o dist/budget-check.exe ./src
+# go build -ldflags "-X main.version=<version>" -o dist/budget-check-mac ./src
 ```
 
 ## 版本号规则
 
 - 每次功能更新必须同步更新 `src/version.go` 中的版本号
-- bugfix 升 patch（0.5.0 → 0.5.1），功能更新升 minor（0.5.0 → 0.6.0）
+- bugfix 升 patch（如 1.3.13 → 1.3.14），功能更新升 minor（如 1.3.13 → 1.4.0）
+- 版本号取自 `src/version.go`（如当前 `1.3.13`），由 `build.sh` 通过 ldflags 注入，无需手动传参
 - 版本号全链路显示：启动日志、/api/status、Web 页面、安装向导
 
 ## 目录结构
@@ -37,7 +38,11 @@ src/
 │   ├── webhook.go       # HTTP 入口（解析、校验、入队）
 │   ├── handler.go       # 页面/状态/历史 handler
 │   ├── auth.go          # Web 登录 token 存储
+│   ├── auth_handler.go  # 登录/登出页面 handler
+│   ├── middleware.go    # 鉴权中间件
 │   └── static/          # embed 进二进制的 Web 资源
+├── metrics/
+│   └── metrics.go       # Prometheus 指标（队列长度、处理耗时、回调结果等）
 ├── types/
 │   └── task.go          # Task / Step / RuleTarget / RulesConfig
 ├── budget/
