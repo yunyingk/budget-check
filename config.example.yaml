@@ -3,7 +3,7 @@
 
 # 服务端口配置
 server:
-  port: 8000  # HTTP 服务监听端口
+  port: 9080  # HTTP 服务监听端口
 
 # 合思开放平台配置
 # 从合思管理员后台获取，用于调用合思 API 获取 Token
@@ -17,6 +17,7 @@ ekuaibao:
 webhooks:
   budget-check:
     sign_key: "your-sign-key-here"  # 出站消息签名密钥，用于回调审批
+    rules: "rules/budget-check.json" # 该 webhook 使用的规则文件路径（相对配置文件目录）
     targets:
       - id: "ID01T5nPu92vH9"        # 2026成本中心预算包
         name: "成本中心预算"
@@ -28,6 +29,7 @@ sync:
   interval_minutes: 60  # 每隔多少分钟自动同步一次预算数据
   workers: 10           # 同步并发数
   queue_size: 100       # 校验任务队列最大长度
+  timeout_minutes: 10   # 单次预算包同步超时（分钟）
 
 # 日志配置
 logging:
@@ -42,9 +44,11 @@ web:
   password: ""            # 登录密码，为空则不需要密码
   admin_password: ""      # 管理员密码，保护同步、规则保存、新建 webhook、查看配置等敏感操作
 
-# 维度字段名映射：内部字段 ID → 中文名称，用于规则引擎错误提示
+# 维度字段名映射：内部字段 ID → 中文名称，用于规则引擎错误提示（如"缺少成本中心"而非"缺少E_system_costcenter"）
+# 按实际表单字段补充即可，下面是常见项
 dimension_names:
   E_system_costcenter: "成本中心"
+  u_费用性质: "费用性质"
   u_费用类型档案: "费用类型"
   u_预算管控: "预算管控"
   项目: "项目"
