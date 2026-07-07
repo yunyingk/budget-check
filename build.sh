@@ -46,3 +46,15 @@ echo "构建完成:"
 ls -lh dist/budget-check-windows-amd64.exe dist/budget-check-windows-arm64.exe dist/budget-check-windows-386.exe dist/budget-check-darwin-arm64 dist/budget-check-darwin-amd64 dist/budget-check-linux-amd64 dist/budget-check.exe dist/budget-check-mac
 echo "运行时文件:"
 ls -lh dist/config/config.yaml dist/config/rules/*.json
+
+# 打包主力发行包：windows-amd64，zip 内只含 budget-check.exe（与历史版本结构一致）
+echo "→ 打包发行包..."
+mkdir -p dist/release
+ZIP_NAME="budget-check-windows-amd64-v${VERSION}.zip"
+RELEASE_DIR="$(cd dist/release && pwd)"
+PKG_DIR=$(mktemp -d)
+cp dist/budget-check.exe "$PKG_DIR/"
+(cd "$PKG_DIR" && zip -j "$RELEASE_DIR/$ZIP_NAME" budget-check.exe > /dev/null)
+rm -rf "$PKG_DIR"
+echo "发行包:"
+ls -lh "dist/release/$ZIP_NAME"
