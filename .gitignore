@@ -1,7 +1,17 @@
+# macOS
+.DS_Store
+
+# 构建产物 / 二进制
 *.exe
 budget-check
 budget-check-mac
-logs/
 dist/
+
+# 运行时生成
+logs/
 config.yaml
 config/config.yaml
+
+# 调试 / 临时数据
+*.json.bak
+B*.json
