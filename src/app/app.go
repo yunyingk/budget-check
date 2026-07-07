@@ -59,11 +59,6 @@ func New(cfg *config.Config, logger *rotatelog.RotatingLogger) *App {
 func (a *App) Init() error {
 	log.Printf("配置加载成功: 端口=%d, 合思主机=%s", a.Config.Server.Port, a.Config.Ekb.Host)
 
-	workers := a.Config.Sync.Workers
-	if workers <= 0 {
-		workers = 10
-	}
-
 	a.Store = budget.NewStore()
 	a.Client = ekb.NewClient(a.Config.Ekb.Host, a.Config.Ekb.AppKey, a.Config.Ekb.AppSecret)
 
@@ -73,9 +68,23 @@ func (a *App) Init() error {
 	}
 	a.Queue = queue.New(queueSize)
 
-	// 从 webhooks 中收集所有 targets（去重）
+	signKeys, engines, rulesCfgs, rulesPaths := a.buildRuleRuntime(a.Config)
+	a.SyncCfg = buildSyncConfig(a.Config)
+	a.Engines = engines
+	a.RulesCfgs = rulesCfgs
+	a.RulesPaths = rulesPaths
+
+	a.Checker = consumer.NewChecker(a.Client, a.Store, signKeys, a.Engines)
+	return nil
+}
+
+func buildSyncConfig(cfg *config.Config) budget.SyncConfig {
+	workers := cfg.Sync.Workers
+	if workers <= 0 {
+		workers = 10
+	}
 	targetMap := make(map[string]budget.Target)
-	for _, wh := range a.Config.Webhooks {
+	for _, wh := range cfg.Webhooks {
 		for _, t := range wh.Targets {
 			targetMap[t.ID] = budget.Target{ID: t.ID, Name: t.Name}
 		}
@@ -84,19 +93,20 @@ func (a *App) Init() error {
 	for _, t := range targetMap {
 		targets = append(targets, t)
 	}
-	timeoutMinutes := a.Config.Sync.TimeoutMinutes
+	timeoutMinutes := cfg.Sync.TimeoutMinutes
 	if timeoutMinutes < 15 {
 		timeoutMinutes = 15
 	}
-	a.SyncCfg = budget.SyncConfig{Targets: targets, Workers: workers, TimeoutMinutes: timeoutMinutes}
+	return budget.SyncConfig{Targets: targets, Workers: workers, TimeoutMinutes: timeoutMinutes}
+}
 
-	// 收集所有 webhook 的 sign_key，并为每个 webhook 加载独立规则引擎
+func (a *App) buildRuleRuntime(cfg *config.Config) (map[string]string, map[string]*rules.Engine, map[string]*types.RulesConfig, map[string]string) {
 	signKeys := make(map[string]string)
-	a.Engines = make(map[string]*rules.Engine)
-	a.RulesCfgs = make(map[string]*types.RulesConfig)
-	a.RulesPaths = make(map[string]string)
+	engines := make(map[string]*rules.Engine)
+	rulesCfgs := make(map[string]*types.RulesConfig)
+	rulesPaths := make(map[string]string)
 
-	for key, wh := range a.Config.Webhooks {
+	for key, wh := range cfg.Webhooks {
 		if wh.SignKey != "" {
 			signKeys[key] = wh.SignKey
 		}
@@ -105,29 +115,58 @@ func (a *App) Init() error {
 		if rulesPath == "" {
 			rulesPath = fmt.Sprintf("rules/%s.json", key)
 		}
-		// 相对路径基于配置文件目录解析
-		if !filepath.IsAbs(rulesPath) && a.Config.BaseDir != "" {
-			rulesPath = filepath.Join(a.Config.BaseDir, rulesPath)
+		if !filepath.IsAbs(rulesPath) && cfg.BaseDir != "" {
+			rulesPath = filepath.Join(cfg.BaseDir, rulesPath)
 		}
 
 		rulesCfg, err := config.LoadRules(rulesPath)
 		if err != nil {
-			log.Printf("[Init] webhook=%s 规则文件不存在或加载失败: %v", key, err)
+			log.Printf("[Config] webhook=%s 规则文件不存在或加载失败: %v", key, err)
 			continue
 		}
-		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg, a.Config.DimensionNames)
+		engine, err := rules.NewEngine(a.Store, a.Client, rulesCfg, cfg.DimensionNames)
 		if err != nil {
-			log.Printf("[Init] webhook=%s 规则编译失败: %v", key, err)
+			log.Printf("[Config] webhook=%s 规则编译失败: %v", key, err)
 			continue
 		}
-		a.Engines[key] = engine
-		a.RulesCfgs[key] = rulesCfg
-		a.RulesPaths[key] = rulesPath
-		log.Printf("[Init] webhook=%s 规则引擎加载成功: %s", key, rulesPath)
+		engines[key] = engine
+		rulesCfgs[key] = rulesCfg
+		rulesPaths[key] = rulesPath
+		log.Printf("[Config] webhook=%s 规则引擎加载成功: %s", key, rulesPath)
+	}
+	return signKeys, engines, rulesCfgs, rulesPaths
+}
+
+func (a *App) reloadRuntimeConfig() error {
+	if a.Config.ConfigPath == "" {
+		return nil
+	}
+	nextCfg, err := config.LoadConfig(a.Config.ConfigPath)
+	if err != nil {
+		return fmt.Errorf("热重载配置失败: %w", err)
+	}
+	if nextCfg.Ekb.Host != a.Config.Ekb.Host || nextCfg.Ekb.AppKey != a.Config.Ekb.AppKey || nextCfg.Ekb.AppSecret != a.Config.Ekb.AppSecret {
+		a.Client = ekb.NewClient(nextCfg.Ekb.Host, nextCfg.Ekb.AppKey, nextCfg.Ekb.AppSecret)
 	}
 
-	a.Checker = consumer.NewChecker(a.Client, a.Store, signKeys, a.Engines)
+	signKeys, engines, rulesCfgs, rulesPaths := a.buildRuleRuntime(nextCfg)
+	*a.Config = *nextCfg
+	a.SyncCfg = buildSyncConfig(nextCfg)
+	a.Engines = engines
+	a.RulesPaths = rulesPaths
+	replaceRulesCfgs(a.RulesCfgs, rulesCfgs)
+	a.Checker.ReplaceRuntime(a.Client, signKeys, engines)
+	log.Printf("[Config] 热重载完成: webhooks=%d targets=%d rules=%d", len(a.Config.Webhooks), len(a.SyncCfg.Targets), len(a.RulesCfgs))
 	return nil
+}
+
+func replaceRulesCfgs(dst, src map[string]*types.RulesConfig) {
+	for key := range dst {
+		delete(dst, key)
+	}
+	for key, value := range src {
+		dst[key] = value
+	}
 }
 
 // Sync 手动触发一次预算同步（带锁保护）
@@ -141,6 +180,9 @@ func (a *App) Sync() error {
 		a.SyncStartedAt.Store(0)
 		a.Syncing.Store(false)
 	}()
+	if err := a.reloadRuntimeConfig(); err != nil {
+		return err
+	}
 	timeout := time.Duration(a.SyncCfg.TimeoutMinutes) * time.Minute
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()

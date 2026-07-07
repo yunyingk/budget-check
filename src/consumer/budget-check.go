@@ -30,7 +30,7 @@ type Checker struct {
 	SignKeys map[string]string        // webhookKey → signKey
 	Engines  map[string]*rules.Engine // webhookKey → Engine
 	History  []HistoryItem
-	mu       sync.Mutex
+	mu       sync.RWMutex
 }
 
 func NewChecker(client *ekb.Client, store *budget.Store, signKeys map[string]string, engines map[string]*rules.Engine) *Checker {
@@ -65,9 +65,18 @@ func (c *Checker) AddSignKey(key, signKey string) {
 	c.SignKeys[key] = signKey
 }
 
-func (c *Checker) GetHistory() []HistoryItem {
+// ReplaceRuntime 原子替换校验运行时配置，用于同步前热重载。
+func (c *Checker) ReplaceRuntime(client *ekb.Client, signKeys map[string]string, engines map[string]*rules.Engine) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.Client = client
+	c.SignKeys = signKeys
+	c.Engines = engines
+}
+
+func (c *Checker) GetHistory() []HistoryItem {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	result := make([]HistoryItem, len(c.History))
 	copy(result, c.History)
 	return result
@@ -94,7 +103,9 @@ func (c *Checker) Evaluate(task types.Task) (string, string) {
 		return "refuse", "系统错误：单据未找到"
 	}
 
+	c.mu.RLock()
 	engine := c.Engines[task.WebhookKey]
+	c.mu.RUnlock()
 	if engine == nil {
 		metrics.ChecksTotal.WithLabelValues(task.WebhookKey, "error").Inc()
 		return "refuse", fmt.Sprintf("规则引擎未配置: webhook=%s", task.WebhookKey)
@@ -106,8 +117,11 @@ func (c *Checker) Evaluate(task types.Task) (string, string) {
 }
 
 func (c *Checker) fetchFlowData(code string) (map[string]interface{}, error) {
-	u := c.Client.HostURL("/api/openapi/v1.1/flowDetails/byCode?code=" + code)
-	resp, err := c.Client.Get(u)
+	c.mu.RLock()
+	client := c.Client
+	c.mu.RUnlock()
+	u := client.HostURL("/api/openapi/v1.1/flowDetails/byCode?code=" + code)
+	resp, err := client.Get(u)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +158,9 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, error) {
 }
 
 func (c *Checker) CallbackApproval(task types.Task, action, comment string) error {
+	c.mu.RLock()
 	signKey, ok := c.SignKeys[task.WebhookKey]
+	c.mu.RUnlock()
 	if !ok {
 		return fmt.Errorf("未找到 webhookKey=%s 对应的 sign_key", task.WebhookKey)
 	}
@@ -157,8 +173,11 @@ func (c *Checker) CallbackApproval(task types.Task, action, comment string) erro
 		"comment": comment,
 	})
 
-	url := c.Client.HostURL("/api/openapi/v1/approval")
-	resp, err := c.Client.Post(url, body)
+	c.mu.RLock()
+	client := c.Client
+	c.mu.RUnlock()
+	url := client.HostURL("/api/openapi/v1/approval")
+	resp, err := client.Post(url, body)
 	if err != nil {
 		return fmt.Errorf("请求失败: %w", err)
 	}
