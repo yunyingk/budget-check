@@ -257,3 +257,9 @@ func (s *Store) MissingTargets() []MissingTarget {
 	}
 	return result
 }
+
+func (s *Store) HasMissingTargets() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.missingTargets) > 0
+}

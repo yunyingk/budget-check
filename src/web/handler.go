@@ -89,8 +89,6 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 	syncStatus := "ok"
 	if isSyncing {
 		syncStatus = "syncing"
-	} else if len(missingTargets) > 0 {
-		syncStatus = "warning"
 	}
 
 	writeJSON(w, 200, map[string]interface{}{

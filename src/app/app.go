@@ -271,7 +271,23 @@ func (a *App) Run() error {
 
 		// 消费循环
 		go func() {
-			for task := range a.Queue.Chan() {
+			var pausedLogAt time.Time
+			for {
+				if a.Store.HasMissingTargets() {
+					if time.Since(pausedLogAt) >= 10*time.Second {
+						log.Printf("[Consumer] 配置异常，暂停消费队列；webhook 仍可入队，待修复预算目标配置后恢复")
+						pausedLogAt = time.Now()
+					}
+					time.Sleep(time.Second)
+					continue
+				}
+				task := <-a.Queue.Chan()
+				if a.Store.HasMissingTargets() {
+					if !a.Queue.Enqueue(task) {
+						log.Printf("[Consumer] 配置异常，任务重新入队失败: taskID=%s code=%s", task.ID, task.Code)
+					}
+					continue
+				}
 				a.processTask(task)
 			}
 		}()

@@ -101,11 +101,10 @@ const app = createApp({
     })
     const syncStatusText = computed(() => {
       if (isSyncing.value) return '同步中...'
-      if (syncStatus.value === 'warning') return '配置异常'
       return '同步完成'
     })
     const syncStatusClass = computed(() => {
-      if (isSyncing.value || syncStatus.value === 'warning') return 'tag-warn'
+      if (isSyncing.value) return 'tag-warn'
       return 'tag-ok'
     })
 
