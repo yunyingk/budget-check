@@ -35,6 +35,7 @@ type App struct {
 	Syncing          atomic.Bool
 	SyncCfg          budget.SyncConfig
 	Checker          *consumer.Checker
+	RetryBucket      *consumer.RetryBucket         // 回调失败重试桶
 	Engines          map[string]*rules.Engine      // webhookKey → Engine
 	RulesCfgs        map[string]*types.RulesConfig // webhookKey → RulesConfig（前端展示用）
 	RulesPaths       map[string]string             // webhookKey → 规则文件路径
@@ -42,9 +43,36 @@ type App struct {
 	StartTime        time.Time    // 服务启动时间
 	LastSyncDuration atomic.Int64 // 上次同步耗时（纳秒）
 	SyncStartedAt    atomic.Int64 // 当前同步开始时间（Unix 秒，0 表示未同步中）
+	SyncFails        atomic.Int32 // 连续同步失败次数（退避用）
 }
 
 var ErrSyncAlreadyRunning = errors.New("同步已在进行中")
+
+// 同步退避参数：合思宕机时柔和化重试，避免硬碰硬
+const (
+	syncMinBackoff = 1 * time.Minute  // 首次失败后的初始退避
+	syncMaxBackoff = 10 * time.Minute // 退避上限（不超过正常 IntervalMinutes）
+)
+
+// nextSyncBackoff 根据连续失败次数计算下一次同步前的等待时长。
+//   - 0 次失败（正常）→ normalInterval
+//   - 失败次数递增 → 1m, 2m, 4m, 8m, 10m（封顶）
+func nextSyncBackoff(fails int, normalInterval time.Duration) time.Duration {
+	if fails <= 0 || normalInterval <= 0 {
+		return normalInterval
+	}
+	backoff := syncMinBackoff
+	for i := 1; i < fails && backoff < syncMaxBackoff; i++ {
+		backoff *= 2
+	}
+	if backoff > syncMaxBackoff {
+		backoff = syncMaxBackoff
+	}
+	if backoff > normalInterval {
+		backoff = normalInterval
+	}
+	return backoff
+}
 
 // New 创建 App 实例（不初始化组件）
 func New(cfg *config.Config, logger *rotatelog.RotatingLogger) *App {
@@ -75,6 +103,7 @@ func (a *App) Init() error {
 	a.RulesPaths = rulesPaths
 
 	a.Checker = consumer.NewChecker(a.Client, a.Store, signKeys, a.Engines)
+	a.RetryBucket = consumer.NewRetryBucket(a.Checker)
 	return nil
 }
 
@@ -191,9 +220,11 @@ func (a *App) Sync() error {
 	a.LastSyncDuration.Store(int64(duration))
 	metrics.SyncDuration.Observe(duration.Seconds())
 	if err != nil {
+		a.SyncFails.Add(1)
 		metrics.SyncTotal.WithLabelValues("error").Inc()
 		return err
 	}
+	a.SyncFails.Store(0)
 	metrics.SyncTotal.WithLabelValues("success").Inc()
 	metrics.LastSyncTimestamp.Set(float64(time.Now().Unix()))
 	return nil
@@ -208,9 +239,12 @@ func (a *App) processTask(task types.Task) {
 	}()
 	action, comment := a.Checker.Evaluate(task)
 	if err := a.Checker.CallbackApproval(task, action, comment); err != nil {
-		failComment := fmt.Sprintf("%s；回调审批失败: %v", comment, err)
-		log.Printf("[Consumer] 回调审批失败: taskID=%s code=%s flowID=%s action=%s error=%v", task.ID, task.Code, task.FlowID, action, err)
-		a.Checker.AddHistory(task.Code, "callback_error", failComment)
+		// 回调失败 → 入重试桶，1m→3m→10m 最多重试 3 次，仍失败才放弃并告警。
+		// action/comment 已算好，重试时直接复用，不会重新 Evaluate / 拉单据。
+		log.Printf("[Consumer] 回调审批失败，入重试桶: taskID=%s code=%s flowID=%s action=%s error=%v",
+			task.ID, task.Code, task.FlowID, action, err)
+		a.RetryBucket.Add(task, action, comment)
+		a.Checker.AddHistory(task.Code, "callback_retry", fmt.Sprintf("回调失败已入重试队列: %v", err))
 	} else {
 		a.Checker.AddHistory(task.Code, action, comment)
 	}
@@ -301,15 +335,21 @@ func (a *App) SaveRules(key string, cfg *types.RulesConfig) error {
 func (a *App) Run() error {
 	log.Println("[Init] 开始后台同步预算数据...")
 	go func() {
+		normalInterval := time.Duration(a.Config.Sync.IntervalMinutes) * time.Minute
 		for {
 			if err := a.Sync(); err != nil {
-				log.Printf("[Init] 首次同步失败，暂不启动消费队列: %v", err)
-				time.Sleep(time.Duration(a.Config.Sync.IntervalMinutes) * time.Minute)
+				fails := a.SyncFails.Load()
+				backoff := nextSyncBackoff(int(fails), normalInterval)
+				log.Printf("[Init] 首次同步失败（连续第 %d 次），%v 后重试: %v", fails, backoff, err)
+				time.Sleep(backoff)
 				continue
 			}
 			break
 		}
 		log.Println("[Init] 首次同步完成，开始消费队列")
+
+		// 回调失败重试桶（独立于主队列，避免失败任务污染新任务流）
+		go a.RetryBucket.Run(30 * time.Second)
 
 		// 消费循环
 		go func() {
@@ -334,11 +374,18 @@ func (a *App) Run() error {
 			}
 		}()
 
-		// 定时同步
+		// 定时同步（失败时指数退避，成功后回正常周期）
 		for {
-			time.Sleep(time.Duration(a.Config.Sync.IntervalMinutes) * time.Minute)
+			fails := a.SyncFails.Load()
+			wait := normalInterval
+			if fails > 0 {
+				wait = nextSyncBackoff(int(fails), normalInterval)
+			}
+			time.Sleep(wait)
 			if err := a.Sync(); err != nil {
-				log.Printf("[Sync] 定时同步失败，继续使用上次成功缓存: %v", err)
+				fails := a.SyncFails.Load()
+				next := nextSyncBackoff(int(fails), normalInterval)
+				log.Printf("[Sync] 定时同步失败（连续第 %d 次），%v 后重试，继续使用上次成功缓存: %v", fails, next, err)
 			}
 		}
 	}()

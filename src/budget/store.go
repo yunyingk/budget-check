@@ -167,20 +167,32 @@ func (s *Store) Clear() {
 	s.missingTargets = make(map[string]MissingTarget)
 }
 
-// Replace 原子替换整个 store（同步用）
+// Replace 原子替换整个 store（同步用）。
+// newStore 是 Sync 内部新建的私有对象，调用方保证此刻无其他 goroutine 持有它，
+// 因此这里只锁 s，不再对 newStore 加锁，避免"A 锁里套 B 锁"的交叉锁隐患。
 func (s *Store) Replace(newStore *Store) {
+	// 先在 newStore 自己的锁下把字段读出来（防御性，未来若有外部引用也安全）
+	newStore.mu.RLock()
+	trees := newStore.trees
+	index := newStore.index
+	treeOf := newStore.treeOf
+	treeCount := newStore.treeCount
+	treeNodeSeen := newStore.treeNodeSeen
+	missingTargets := newStore.missingTargets
+	updatedAt := newStore.updatedAt
+	progress := newStore.syncProgress.Load()
+	newStore.mu.RUnlock()
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	newStore.mu.RLock()
-	defer newStore.mu.RUnlock()
-	s.trees = newStore.trees
-	s.index = newStore.index
-	s.treeOf = newStore.treeOf
-	s.treeCount = newStore.treeCount
-	s.treeNodeSeen = newStore.treeNodeSeen
-	s.missingTargets = newStore.missingTargets
-	s.updatedAt = newStore.updatedAt
-	s.syncProgress.Store(newStore.syncProgress.Load())
+	s.trees = trees
+	s.index = index
+	s.treeOf = treeOf
+	s.treeCount = treeCount
+	s.treeNodeSeen = treeNodeSeen
+	s.missingTargets = missingTargets
+	s.updatedAt = updatedAt
+	s.syncProgress.Store(progress)
 }
 
 func (s *Store) Count() int {

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,6 +33,17 @@ type Client struct {
 
 	token  string
 	expiry time.Time
+	// token 保护：tokenMu 保护 token/expiry/refreshing；
+	// tokenCond 用于 singleflight，让并发的刷新请求等待唯一一次刷新完成。
+	tokenMu      sync.Mutex
+	tokenCond    *sync.Cond
+	refreshing   bool
+	lastRefreshAt time.Time
+
+	// consecutiveFails 连续失败计数（健康度），用于 sync 自适应降并发。
+	// 请求成功归零，失败累加。原子读写。
+	consecutiveFails atomic.Int32
+
 	client *http.Client
 
 	dimCache   map[string]*dimCacheEntry
@@ -41,7 +53,7 @@ type Client struct {
 }
 
 func NewClient(host, appKey, secret string) *Client {
-	return &Client{
+	c := &Client{
 		Host:     host,
 		AppKey:   appKey,
 		Secret:   secret,
@@ -49,6 +61,8 @@ func NewClient(host, appKey, secret string) *Client {
 		feeTypes: make(map[string]*Dimension),
 		dimCache: make(map[string]*dimCacheEntry),
 	}
+	c.tokenCond = sync.NewCond(&c.tokenMu)
+	return c
 }
 
 // GetToken 获取 accessToken，自动缓存，过期前 10 分钟刷新
@@ -56,10 +70,48 @@ func (c *Client) GetToken() (string, error) {
 	return c.GetTokenContext(context.Background())
 }
 
+// GetTokenContext 获取 accessToken，带 singleflight 保护：
+// token 仍有效 → 直接返回缓存
+// token 过期 → 只允许一个 goroutine 执行刷新（refreshing=true），其他 goroutine 通过 Cond 等待
+// 等待者醒来后会重新检查 token（刷新成功就能拿到新 token；刷新失败则返回上次错误）
 func (c *Client) GetTokenContext(ctx context.Context) (string, error) {
+	c.tokenMu.Lock()
+	// 快路径：token 仍有效
 	if c.token != "" && time.Now().Before(c.expiry) {
-		return c.token, nil
+		t := c.token
+		c.tokenMu.Unlock()
+		return t, nil
 	}
+	// 已有 goroutine 在刷新 → 等待它完成
+	if c.refreshing {
+		for c.refreshing {
+			c.tokenCond.Wait()
+		}
+		// 刷新完成后，token 要么有效（成功）要么仍为旧值（失败）
+		if c.token != "" && time.Now().Before(c.expiry) {
+			t := c.token
+			c.tokenMu.Unlock()
+			return t, nil
+		}
+		c.tokenMu.Unlock()
+		return "", fmt.Errorf("获取accessToken失败: 上一次刷新未成功")
+	}
+	// 当前 goroutine 成为唯一的刷新者
+	c.refreshing = true
+	c.tokenMu.Unlock()
+
+	token, err := c.doRefreshToken(ctx)
+
+	c.tokenMu.Lock()
+	c.refreshing = false
+	c.tokenCond.Broadcast() // 唤醒所有等待者
+	c.tokenMu.Unlock()
+
+	return token, err
+}
+
+// doRefreshToken 实际执行 token 刷新（发 HTTP 请求），调用方负责 singleflight 调度
+func (c *Client) doRefreshToken(ctx context.Context) (string, error) {
 	body, _ := json.Marshal(map[string]string{"appKey": c.AppKey, "appSecurity": c.Secret})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.Host+"/api/openapi/v1/auth/getAccessToken", bytes.NewReader(body))
 	if err != nil {
@@ -80,9 +132,27 @@ func (c *Client) GetTokenContext(ctx context.Context) (string, error) {
 	if token == "" {
 		return "", fmt.Errorf("获取accessToken失败: %v", result)
 	}
+	c.tokenMu.Lock()
 	c.token = token
 	c.expiry = time.Now().Add(110 * time.Minute)
+	c.lastRefreshAt = time.Now()
+	c.tokenMu.Unlock()
 	return token, nil
+}
+
+// recordSuccess 请求成功，归零失败计数
+func (c *Client) recordSuccess() {
+	c.consecutiveFails.Store(0)
+}
+
+// recordFailure 请求失败，累加失败计数
+func (c *Client) recordFailure() {
+	c.consecutiveFails.Add(1)
+}
+
+// ConsecutiveFails 返回当前连续失败次数（健康度指标）
+func (c *Client) ConsecutiveFails() int32 {
+	return c.consecutiveFails.Load()
 }
 
 // Get 发起 GET 请求，自动附加 accessToken 参数
@@ -108,7 +178,13 @@ func (c *Client) GetWithTokenContext(ctx context.Context, rawURL, token string) 
 	if err != nil {
 		return nil, err
 	}
-	return c.client.Do(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.recordFailure()
+		return nil, err
+	}
+	c.recordSuccess()
+	return resp, nil
 }
 
 // Post 发起 POST 请求，自动附加 accessToken 参数
@@ -126,7 +202,13 @@ func (c *Client) Post(rawURL string, body []byte) (*http.Response, error) {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.client.Do(req)
+	resp, err := c.client.Do(req)
+	if err != nil {
+		c.recordFailure()
+		return nil, err
+	}
+	c.recordSuccess()
+	return resp, nil
 }
 
 // HostURL 拼接主机地址 + 路径

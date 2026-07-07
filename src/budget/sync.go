@@ -31,7 +31,24 @@ func Sync(ctx context.Context, store *Store, client *ekb.Client, cfg SyncConfig)
 	if cfg.Workers <= 0 {
 		cfg.Workers = 10
 	}
+	// 健康度自适应降并发：合思连续失败时主动收缩压力
+	//   失败 > 5 次 → 单路（最保守）
+	//   失败 > 2 次 → 砍半
+	//   否则        → 用配置值
+	fails := client.ConsecutiveFails()
+	original := cfg.Workers
+	if fails > 5 {
+		cfg.Workers = 1
+	} else if fails > 2 {
+		cfg.Workers = cfg.Workers / 2
+		if cfg.Workers < 1 {
+			cfg.Workers = 1
+		}
+	}
 	start := time.Now()
+	if cfg.Workers != original {
+		log.Printf("[Sync] 检测到合思连续失败 %d 次，并发从 %d 降为 %d", fails, original, cfg.Workers)
+	}
 	log.Printf("[Sync] 开始同步预算数据... (并发数: %d, 目标数: %d, 超时: %d 分钟)", cfg.Workers, len(cfg.Targets), cfg.TimeoutMinutes)
 
 	token, err := client.GetTokenContext(ctx)
