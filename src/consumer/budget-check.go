@@ -113,9 +113,21 @@ func (c *Checker) fetchFlowData(code string) (map[string]interface{}, error) {
 	}
 	defer resp.Body.Close()
 
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		bodyText := truncateLog(respBody, 1000)
+		log.Printf("[Consumer] 获取单据详情失败: code=%s status=%d body=%s", code, resp.StatusCode, bodyText)
+		return nil, fmt.Errorf("合思返回错误: status=%d body=%s", resp.StatusCode, bodyText)
+	}
+
 	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("解析响应失败: %w", err)
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		bodyText := truncateLog(respBody, 1000)
+		log.Printf("[Consumer] 获取单据详情响应不是JSON: code=%s status=%d body=%s", code, resp.StatusCode, bodyText)
+		return nil, fmt.Errorf("解析响应失败: %w body=%s", err, bodyText)
 	}
 
 	val, _ := result["value"].(map[string]interface{})
