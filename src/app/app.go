@@ -41,6 +41,7 @@ type App struct {
 	Version          string
 	StartTime        time.Time    // 服务启动时间
 	LastSyncDuration atomic.Int64 // 上次同步耗时（纳秒）
+	SyncStartedAt    atomic.Int64 // 当前同步开始时间（Unix 秒，0 表示未同步中）
 }
 
 var ErrSyncAlreadyRunning = errors.New("同步已在进行中")
@@ -134,8 +135,12 @@ func (a *App) Sync() error {
 	if !a.Syncing.CompareAndSwap(false, true) {
 		return ErrSyncAlreadyRunning
 	}
-	defer a.Syncing.Store(false)
 	start := time.Now()
+	a.SyncStartedAt.Store(start.Unix())
+	defer func() {
+		a.SyncStartedAt.Store(0)
+		a.Syncing.Store(false)
+	}()
 	timeout := time.Duration(a.SyncCfg.TimeoutMinutes) * time.Minute
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
@@ -296,6 +301,7 @@ func (a *App) Run() error {
 		CreateWebhookFunc: a.CreateWebhook,
 		StartTime:         a.StartTime,
 		LastSyncDuration:  &a.LastSyncDuration,
+		SyncStartedAt:     &a.SyncStartedAt,
 		Client:            a.Client,
 	})
 

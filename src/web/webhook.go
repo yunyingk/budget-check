@@ -3,6 +3,8 @@ package web
 import (
 	"budget/src/types"
 	"encoding/json"
+	"errors"
+	"io"
 	"log"
 	"net/http"
 	"time"
@@ -28,15 +30,16 @@ type WebhookResponse struct {
 func handleWebhook(w http.ResponseWriter, r *http.Request, webhookKey string, enqueue func(types.Task) bool, genID func(string) string) {
 	var req WebhookRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if errors.Is(err, io.EOF) {
+			writeWebhookTestOK(w)
+			return
+		}
 		writeJSON(w, 400, WebhookResponse{BudgetCheck: "0", Message: "请求格式错误"})
 		return
 	}
-	// 测试通路：三个字段均为空，不入队直接返回 201
+	// 测试通路：三个字段均为空，不入队直接返回 200
 	if req.Code == "" && req.FlowID == "" && req.NodeID == "" {
-		log.Printf("[Webhook] 测试通路: 空参数请求，不入队")
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(WebhookResponse{BudgetCheck: "1", Success: true, Message: "测试通路，已跳过"})
+		writeWebhookTestOK(w)
 		return
 	}
 
@@ -67,4 +70,9 @@ func handleWebhook(w http.ResponseWriter, r *http.Request, webhookKey string, en
 		log.Printf("[Webhook] 队列已满，拒绝: code=%s webhook=%s", req.Code, webhookKey)
 		writeJSON(w, 503, WebhookResponse{BudgetCheck: "0", Message: "队列已满，请稍后重试"})
 	}
+}
+
+func writeWebhookTestOK(w http.ResponseWriter) {
+	log.Printf("[Webhook] 测试通路: 空参数请求，不入队")
+	writeJSON(w, http.StatusOK, WebhookResponse{BudgetCheck: "1", Success: true, Message: "测试通路，已跳过"})
 }

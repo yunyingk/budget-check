@@ -30,6 +30,7 @@
           <div class="kv"><span class="k">总末端节点</span><span class="v">{{ totalLeafCount }} 节点</span></div>
           <div class="kv"><span class="k">费用类型</span><span class="v">{{ feeTypeCount }} 个</span></div>
           <div class="kv"><span class="k">同步状态</span><span class="v"><span class="tag" :class="isSyncing ? 'tag-warn' : 'tag-ok'">{{ isSyncing ? '同步中...' : '同步完成' }}</span></span></div>
+          <div class="kv" v-if="isSyncing"><span class="k">本次耗时</span><span class="v">{{ syncElapsed }}</span></div>
           <div class="kv"><span class="k">上次同步</span><span class="v">{{ lastSyncAt }}</span></div>
           <div class="kv"><span class="k">同步间隔</span><span class="v">{{ intervalMinutes }} 分钟</span></div>
           <div class="kv"><span class="k">队列待处理</span><span class="v">{{ queuePending }} / {{ queueSize }}</span></div>

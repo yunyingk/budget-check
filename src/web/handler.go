@@ -27,11 +27,22 @@ func handleMetrics() http.Handler {
 	return promhttp.Handler()
 }
 
-func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64, client *ekb.Client) {
+func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, syncing func() bool, version string, interval int, queueSize int, queuePending int, startTime time.Time, lastSyncDuration *atomic.Int64, syncStartedAt *atomic.Int64, client *ekb.Client) {
 	lastSync := store.UpdatedAt()
 	lastSyncStr := ""
 	if !lastSync.IsZero() {
 		lastSyncStr = lastSync.Format(time.RFC3339)
+	}
+	isSyncing := syncing()
+	syncStartedAtStr := ""
+	syncElapsedSec := float64(0)
+	if isSyncing && syncStartedAt != nil {
+		startUnix := syncStartedAt.Load()
+		if startUnix > 0 {
+			startedAt := time.Unix(startUnix, 0)
+			syncStartedAtStr = startedAt.Format(time.RFC3339)
+			syncElapsedSec = time.Since(startedAt).Seconds()
+		}
 	}
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
@@ -68,23 +79,25 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 	}
 
 	writeJSON(w, 200, map[string]interface{}{
-		"status":           "ok",
-		"version":          version,
-		"uptime":           uptimeStr,
-		"total_leaf_count": store.TotalLeafCount(),
-		"fee_type_count":   feeTypeCount,
-		"is_syncing":       syncing(),
-		"last_sync_at":     lastSyncStr,
+		"status":            "ok",
+		"version":           version,
+		"uptime":            uptimeStr,
+		"total_leaf_count":  store.TotalLeafCount(),
+		"fee_type_count":    feeTypeCount,
+		"is_syncing":        isSyncing,
+		"last_sync_at":      lastSyncStr,
 		"sync_duration_sec": syncDurationSec,
-		"memory_mb":        bToMB(m.Alloc),
-		"goroutines":       runtime.NumGoroutine(),
-		"interval_minutes": interval,
+		"sync_started_at":   syncStartedAtStr,
+		"sync_elapsed_sec":  syncElapsedSec,
+		"memory_mb":         bToMB(m.Alloc),
+		"goroutines":        runtime.NumGoroutine(),
+		"interval_minutes":  interval,
 		"queue": map[string]interface{}{
 			"pending":  queuePending,
 			"capacity": queueSize,
 		},
-		"targets":  targets,
-		"metrics":  promMetrics,
+		"targets": targets,
+		"metrics": promMetrics,
 	})
 }
 
@@ -139,7 +152,7 @@ func handleSaveRules(w http.ResponseWriter, r *http.Request, rulesCfgs map[strin
 
 	// 解析请求体
 	var req struct {
-		Password string           `json:"password"`
+		Password string            `json:"password"`
 		Config   types.RulesConfig `json:"config"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

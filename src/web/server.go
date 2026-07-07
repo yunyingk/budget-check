@@ -32,6 +32,7 @@ type Deps struct {
 	CreateWebhookFunc func(string, string) error             // 创建新 webhook
 	StartTime         time.Time                              // 服务启动时间
 	LastSyncDuration  *atomic.Int64                          // 上次同步耗时（纳秒）
+	SyncStartedAt     *atomic.Int64                          // 当前同步开始时间（Unix 秒）
 	Client            *ekb.Client                            // 合思客户端（用于获取费用类型数量）
 }
 
@@ -58,7 +59,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 			authMiddleware(deps.TokenStore, cfg.Web.Password)(handleHome)(w, r)
 		})
 		mux.HandleFunc("/api/status", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
-			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration, deps.Client)
+			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration, deps.SyncStartedAt, deps.Client)
 		}))
 		mux.HandleFunc("/api/history", authMiddleware(deps.TokenStore, cfg.Web.Password)(func(w http.ResponseWriter, r *http.Request) {
 			handleHistory(w, r, deps.Checker)
@@ -85,7 +86,7 @@ func Register(mux *http.ServeMux, deps Deps) {
 		log.Printf("[Web] 管理页面已启用: http://localhost:%d", cfg.Server.Port)
 	} else {
 		mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration, deps.Client)
+			handleStatus(w, r, deps.Store, deps.Syncing, deps.Version, cfg.Sync.IntervalMinutes, cfg.Sync.QueueSize, deps.Queue.Len(), deps.StartTime, deps.LastSyncDuration, deps.SyncStartedAt, deps.Client)
 		})
 	}
 

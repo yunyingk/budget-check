@@ -45,6 +45,7 @@ const app = createApp({
     const feeTypeCount = ref(0)
     const isSyncing = ref(false)
     const lastSyncAt = ref('')
+    const syncElapsed = ref('')
     const intervalMinutes = ref(0)
     const queuePending = ref(0)
     const queueSize = ref(0)
@@ -113,6 +114,16 @@ const app = createApp({
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
     }
 
+    function formatSeconds(seconds) {
+      seconds = Math.max(0, Math.floor(seconds || 0))
+      const h = Math.floor(seconds / 3600)
+      const m = Math.floor((seconds % 3600) / 60)
+      const s = seconds % 60
+      if (h > 0) return `${h}h${m}m`
+      if (m > 0) return `${m}m${s}s`
+      return `${s}s`
+    }
+
     // Format timestamp to YYYY-MM-DD HH:mm:ss
     function formatTimestamp(ts) {
       if (!ts) return '-'
@@ -142,6 +153,7 @@ const app = createApp({
         feeTypeCount.value = d.fee_type_count || 0
         isSyncing.value = !!d.is_syncing
         lastSyncAt.value = formatSyncTime(d.last_sync_at)
+        syncElapsed.value = isSyncing.value ? formatSeconds(d.sync_elapsed_sec) : ''
         intervalMinutes.value = d.interval_minutes || 0
         memoryMB.value = d.memory_mb || 0
         goroutines.value = d.goroutines || 0
@@ -571,7 +583,7 @@ const app = createApp({
       // Page
       currentPage, switchPage,
       // Overview
-      version, totalLeafCount, feeTypeCount, isSyncing, lastSyncAt, intervalMinutes,
+      version, totalLeafCount, feeTypeCount, isSyncing, lastSyncAt, syncElapsed, intervalMinutes,
       queuePending, queueSize, memoryMB, goroutines, targets, metrics, history,
       // Sync
       syncing, syncMsg, doSync,
