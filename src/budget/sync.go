@@ -32,7 +32,7 @@ func Sync(ctx context.Context, store *Store, client *ekb.Client, cfg SyncConfig)
 		cfg.Workers = 10
 	}
 	start := time.Now()
-	log.Printf("[Sync] 开始同步预算数据... (并发数: %d)", cfg.Workers)
+	log.Printf("[Sync] 开始同步预算数据... (并发数: %d, 目标数: %d, 超时: %d 分钟)", cfg.Workers, len(cfg.Targets), cfg.TimeoutMinutes)
 
 	token, err := client.GetTokenContext(ctx)
 	if err != nil {
@@ -42,21 +42,25 @@ func Sync(ctx context.Context, store *Store, client *ekb.Client, cfg SyncConfig)
 	log.Printf("[Sync] Token OK")
 
 	// 同步费用类型（全量拉取存内存）
+	feeTypeStart := time.Now()
+	log.Printf("[Sync] 开始同步费用类型...")
 	if err := client.SyncFeeTypesContext(ctx); err != nil {
 		log.Printf("[Sync] 同步费用类型失败: %v", err)
 		return err
 	}
-	log.Printf("[Sync] 费用类型同步完成")
+	log.Printf("[Sync] 费用类型同步完成, 耗时: %v", time.Since(feeTypeStart))
 
 	nextStore := NewStore()
 	nextStore.ResetSyncProgress()
 
+	budgetListStart := time.Now()
+	log.Printf("[Sync] 开始获取预算包列表...")
 	budgets, err := fetchBudgetList(ctx, client, token)
 	if err != nil {
 		log.Printf("[Sync] 获取预算列表失败: %v", err)
 		return err
 	}
-	log.Printf("[Sync] 全量预算包共 %d 个:", len(budgets))
+	log.Printf("[Sync] 全量预算包共 %d 个, 耗时: %v", len(budgets), time.Since(budgetListStart))
 	for _, b := range budgets {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -87,12 +91,13 @@ func Sync(ctx context.Context, store *Store, client *ekb.Client, cfg SyncConfig)
 			continue
 		}
 
-		log.Printf("[Sync] 同步: %s", bName)
+		targetStart := time.Now()
+		log.Printf("[Sync] 同步预算包开始: name=%s id=%s", bName, bID)
 		if err := buildTree(ctx, nextStore, bID, bName, client, token, cfg.Workers); err != nil {
 			log.Printf("    [Error] 同步预算包失败: %s, err=%v", bName, err)
 			return err
 		}
-		log.Printf("    -> %s 完成, 当前总条目: %d", bName, nextStore.Count())
+		log.Printf("[Sync] 同步预算包完成: name=%s id=%s 耗时=%v 当前总条目=%d", bName, bID, time.Since(targetStart), nextStore.Count())
 	}
 
 	store.Replace(nextStore)
@@ -124,11 +129,14 @@ func buildTree(ctx context.Context, store *Store, bID, bName string, client *ekb
 	}
 	queryURL := client.HostURL("/api/openapi/v2/budgets/" + realID + "/query")
 
+	rootStart := time.Now()
+	log.Printf("    [Root] 开始拉取根节点: budget=%s(%s)", bName, bID)
 	rootNodes, _, total, err := fetchNodes(ctx, client, queryURL, "", token, workers)
 	if err != nil {
 		log.Printf("    [Error] 拉取根节点失败: %v", err)
 		return err
 	}
+	log.Printf("    [Root] 根节点拉取完成: budget=%s(%s) nodes=%d total=%d 耗时=%v", bName, bID, len(rootNodes), total, time.Since(rootStart))
 	if total > 0 {
 		log.Printf("    根节点子项总量: %d", total-1)
 	}
@@ -170,7 +178,9 @@ func buildTree(ctx context.Context, store *Store, bID, bName string, client *ekb
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		log.Printf("    [Layer %d] 钻取 %d 个节点... 当前总条目: %d", layer, len(pendingDrills), store.Count())
+		layerStart := time.Now()
+		layerTotal := len(pendingDrills)
+		log.Printf("    [Layer %d] 钻取开始: budget=%s(%s) nodes=%d 当前总条目=%d", layer, bName, bID, layerTotal, store.Count())
 
 		type drillResult struct {
 			parent   map[string]*Node
@@ -204,7 +214,23 @@ func buildTree(ctx context.Context, store *Store, bID, bName string, client *ekb
 		}()
 
 		var nextDrills []drillTask
-		for res := range ch {
+		completed := 0
+		ticker := time.NewTicker(30 * time.Second)
+		for completed < layerTotal {
+			var res drillResult
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-ticker.C:
+				log.Printf("    [Layer %d] 钻取等待中: budget=%s(%s) completed=%d/%d elapsed=%v 当前总条目=%d", layer, bName, bID, completed, layerTotal, time.Since(layerStart).Round(time.Second), store.Count())
+				continue
+			case r, ok := <-ch:
+				if !ok {
+					return fmt.Errorf("预算包 %s(%s) 第 %d 层钻取结果通道提前关闭: completed=%d/%d", bName, bID, layer, completed, layerTotal)
+				}
+				res = r
+				completed++
+			}
 			if res.err != nil {
 				log.Printf("    [Warn] 节点 %s 钻取失败: %v", res.task.nodeID, res.err)
 				return fmt.Errorf("节点 %s 钻取失败: %w", res.task.nodeID, res.err)
@@ -227,7 +253,9 @@ func buildTree(ctx context.Context, store *Store, bID, bName string, client *ekb
 				}
 			}
 		}
+		ticker.Stop()
 
+		log.Printf("    [Layer %d] 钻取完成: budget=%s(%s) completed=%d/%d next=%d 耗时=%v 当前总条目=%d", layer, bName, bID, completed, layerTotal, len(nextDrills), time.Since(layerStart), store.Count())
 		pendingDrills = nextDrills
 		layer++
 	}
@@ -312,6 +340,8 @@ func fetchNodes(ctx context.Context, client *ekb.Client, queryURL, nodeID, token
 	if totalPages <= 1 {
 		return allNodes, nextIDs, totalCount, nil
 	}
+	pageFetchStart := time.Now()
+	log.Printf("    [Page] 分页拉取开始: nodeID=%s pages=%d childCount=%d", blankAsRoot(nodeID), totalPages, childCount)
 
 	type pageResult struct {
 		nodes    []rawNode
@@ -380,7 +410,23 @@ func fetchNodes(ctx context.Context, client *ekb.Client, queryURL, nodeID, token
 		close(ch)
 	}()
 
-	for pr := range ch {
+	completedPages := 0
+	ticker := time.NewTicker(30 * time.Second)
+	for completedPages < totalPages-1 {
+		var pr pageResult
+		select {
+		case <-ctx.Done():
+			return nil, nil, totalCount, ctx.Err()
+		case <-ticker.C:
+			log.Printf("    [Page] 分页拉取等待中: nodeID=%s completed=%d/%d elapsed=%v", blankAsRoot(nodeID), completedPages, totalPages-1, time.Since(pageFetchStart).Round(time.Second))
+			continue
+		case r, ok := <-ch:
+			if !ok {
+				return nil, nil, totalCount, fmt.Errorf("分页结果通道提前关闭: nodeID=%s completed=%d/%d", blankAsRoot(nodeID), completedPages, totalPages-1)
+			}
+			pr = r
+			completedPages++
+		}
 		if pr.err != nil {
 			log.Printf("    [Warn] 分页请求失败 page=%d: %v", pr.page, pr.err)
 			return nil, nil, totalCount, fmt.Errorf("分页请求失败 page=%d: %w", pr.page, pr.err)
@@ -388,8 +434,17 @@ func fetchNodes(ctx context.Context, client *ekb.Client, queryURL, nodeID, token
 		allNodes = append(allNodes, pr.nodes...)
 		nextIDs = append(nextIDs, pr.children...)
 	}
+	ticker.Stop()
+	log.Printf("    [Page] 分页拉取完成: nodeID=%s pages=%d 耗时=%v", blankAsRoot(nodeID), totalPages, time.Since(pageFetchStart))
 
 	return allNodes, nextIDs, totalCount, nil
+}
+
+func blankAsRoot(s string) string {
+	if s == "" {
+		return "<root>"
+	}
+	return s
 }
 
 func parseRawNodes(nodes []interface{}) ([]rawNode, []string, error) {
