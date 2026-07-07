@@ -281,6 +281,13 @@ func (e *Engine) getNodeDisplayName(dimCode string) string {
 func (e *Engine) matchToBudget(target *compiledTarget, unit CheckUnit) string {
 	tree := e.store.GetTreeByID(target.def.ID)
 	if tree == nil {
+		if missing, ok := e.store.MissingTarget(target.def.ID); ok {
+			name := missing.Name
+			if name == "" {
+				name = target.def.Name
+			}
+			return fmt.Sprintf("%s：配置的预算包不存在，ID=%s，原因=%s", name, missing.ID, missing.Reason)
+		}
 		return fmt.Sprintf("%s：预算包未同步", target.def.Name)
 	}
 	if len(tree.Root) == 0 {

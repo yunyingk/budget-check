@@ -54,6 +54,14 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 			"count": store.GetTreeNodeCount(tree.ID),
 		})
 	}
+	var missingTargets []map[string]interface{}
+	for _, target := range store.MissingTargets() {
+		missingTargets = append(missingTargets, map[string]interface{}{
+			"id":     target.ID,
+			"name":   target.Name,
+			"reason": target.Reason,
+		})
+	}
 
 	// 计算运行时间
 	uptime := time.Since(startTime)
@@ -78,8 +86,16 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 		feeTypeCount = client.FeeTypeCount()
 	}
 
+	syncStatus := "ok"
+	if isSyncing {
+		syncStatus = "syncing"
+	} else if len(missingTargets) > 0 {
+		syncStatus = "warning"
+	}
+
 	writeJSON(w, 200, map[string]interface{}{
 		"status":            "ok",
+		"sync_status":       syncStatus,
 		"version":           version,
 		"uptime":            uptimeStr,
 		"total_leaf_count":  store.TotalLeafCount(),
@@ -96,8 +112,9 @@ func handleStatus(w http.ResponseWriter, r *http.Request, store *budget.Store, s
 			"pending":  queuePending,
 			"capacity": queueSize,
 		},
-		"targets": targets,
-		"metrics": promMetrics,
+		"targets":         targets,
+		"missing_targets": missingTargets,
+		"metrics":         promMetrics,
 	})
 }
 

@@ -61,13 +61,29 @@ func Sync(ctx context.Context, store *Store, client *ekb.Client, cfg SyncConfig)
 		return err
 	}
 	log.Printf("[Sync] 全量预算包共 %d 个, 耗时: %v", len(budgets), time.Since(budgetListStart))
+	budgetIDs := make(map[string]string, len(budgets))
 	for _, b := range budgets {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		bName, _ := b["name"].(string)
 		bID, _ := b["id"].(string)
+		if bID != "" {
+			budgetIDs[bID] = bName
+		}
 		log.Printf("    [%s] %s", bID, bName)
+	}
+
+	for _, t := range cfg.Targets {
+		if t.ID == "" {
+			continue
+		}
+		if _, ok := budgetIDs[t.ID]; ok {
+			continue
+		}
+		reason := "配置的预算包 ID 未在合思预算列表中找到"
+		nextStore.MarkMissingTarget(MissingTarget{ID: t.ID, Name: t.Name, Reason: reason})
+		log.Printf("[Sync] 配置预算包不存在: name=%s id=%s reason=%s", t.Name, t.ID, reason)
 	}
 
 	for _, b := range budgets {

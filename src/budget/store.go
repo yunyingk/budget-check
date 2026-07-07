@@ -8,13 +8,13 @@ import (
 
 // Node 预算树节点，key 是维度内容ID，用 map[string]*Node 做子节点查找 O(1)
 type Node struct {
-	DimCode  string                // 维度内容ID
-	DimType  string                // 维度类型，从 API dimensionType 字段获取
-	DimId    string                // 维度ID（dimensionId）= 表单字段名
-	NodeName string                // 节点名称
-	NodeID   string                // 预算节点ID（API nodeId），用于去重
-	IsLeaf   bool                  // 是否叶子节点
-	Children  map[string]*Node     // 子节点，key=子节点的dimCode
+	DimCode  string           // 维度内容ID
+	DimType  string           // 维度类型，从 API dimensionType 字段获取
+	DimId    string           // 维度ID（dimensionId）= 表单字段名
+	NodeName string           // 节点名称
+	NodeID   string           // 预算节点ID（API nodeId），用于去重
+	IsLeaf   bool             // 是否叶子节点
+	Children map[string]*Node // 子节点，key=子节点的dimCode
 }
 
 // Tree 预算包树
@@ -22,32 +22,41 @@ type Node struct {
 // 每个预算包是一棵树，根节点的子节点在第1层
 // 校验时沿树路径匹配：第1层→第2层→第3层，必须沿着同一分支往下走
 type Tree struct {
-	ID       string               // 预算包ID
-	Name     string               // 预算包名称
-	MaxDepth int                  // 树的最大深度（含根）
-	Root     map[string]*Node     // 第1层节点，key=dimCode
+	ID       string           // 预算包ID
+	Name     string           // 预算包名称
+	MaxDepth int              // 树的最大深度（含根）
+	Root     map[string]*Node // 第1层节点，key=dimCode
+}
+
+// MissingTarget 记录配置中要求同步、但合思预算列表中不存在的预算包。
+type MissingTarget struct {
+	ID     string
+	Name   string
+	Reason string
 }
 
 // Store 内存缓存，按预算包存储树形结构
 // 同时保留 dimCode → Node 的全局快速查找索引
 type Store struct {
-	mu           sync.RWMutex
-	trees        []*Tree          // 所有预算包
-	index        map[string]*Node // dimCode → 节点索引，跨所有预算包
-	treeOf       map[string]*Tree // dimCode → 所属预算包
-	treeCount    map[string]int   // tree ID → 叶子节点数
-	treeNodeSeen map[string]map[string]bool // tree ID → nodeID set（去重用）
-	updatedAt    time.Time
-	syncProgress atomic.Int64 // 当前同步进度（实时）
+	mu             sync.RWMutex
+	trees          []*Tree                    // 所有预算包
+	index          map[string]*Node           // dimCode → 节点索引，跨所有预算包
+	treeOf         map[string]*Tree           // dimCode → 所属预算包
+	treeCount      map[string]int             // tree ID → 叶子节点数
+	treeNodeSeen   map[string]map[string]bool // tree ID → nodeID set（去重用）
+	missingTargets map[string]MissingTarget   // target ID → 未同步原因
+	updatedAt      time.Time
+	syncProgress   atomic.Int64 // 当前同步进度（实时）
 }
 
 func NewStore() *Store {
 	return &Store{
-		trees:        make([]*Tree, 0),
-		index:        make(map[string]*Node),
-		treeOf:       make(map[string]*Tree),
-		treeCount:    make(map[string]int),
-		treeNodeSeen: make(map[string]map[string]bool),
+		trees:          make([]*Tree, 0),
+		index:          make(map[string]*Node),
+		treeOf:         make(map[string]*Tree),
+		treeCount:      make(map[string]int),
+		treeNodeSeen:   make(map[string]map[string]bool),
+		missingTargets: make(map[string]MissingTarget),
 	}
 }
 
@@ -155,6 +164,7 @@ func (s *Store) Clear() {
 	s.treeOf = make(map[string]*Tree)
 	s.treeCount = make(map[string]int)
 	s.treeNodeSeen = make(map[string]map[string]bool)
+	s.missingTargets = make(map[string]MissingTarget)
 }
 
 // Replace 原子替换整个 store（同步用）
@@ -168,6 +178,7 @@ func (s *Store) Replace(newStore *Store) {
 	s.treeOf = newStore.treeOf
 	s.treeCount = newStore.treeCount
 	s.treeNodeSeen = newStore.treeNodeSeen
+	s.missingTargets = newStore.missingTargets
 	s.updatedAt = newStore.updatedAt
 	s.syncProgress.Store(newStore.syncProgress.Load())
 }
@@ -216,4 +227,33 @@ func (s *Store) TotalLeafCount() int {
 		total += c
 	}
 	return total
+}
+
+func (s *Store) MarkMissingTarget(target MissingTarget) {
+	if target.ID == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.missingTargets == nil {
+		s.missingTargets = make(map[string]MissingTarget)
+	}
+	s.missingTargets[target.ID] = target
+}
+
+func (s *Store) MissingTarget(id string) (MissingTarget, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	target, ok := s.missingTargets[id]
+	return target, ok
+}
+
+func (s *Store) MissingTargets() []MissingTarget {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	result := make([]MissingTarget, 0, len(s.missingTargets))
+	for _, target := range s.missingTargets {
+		result = append(result, target)
+	}
+	return result
 }

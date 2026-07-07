@@ -44,6 +44,7 @@ const app = createApp({
     const totalLeafCount = ref(0)
     const feeTypeCount = ref(0)
     const isSyncing = ref(false)
+    const syncStatus = ref('ok')
     const lastSyncAt = ref('')
     const syncElapsed = ref('')
     const intervalMinutes = ref(0)
@@ -52,6 +53,7 @@ const app = createApp({
     const memoryMB = ref(0)
     const goroutines = ref(0)
     const targets = ref([])
+    const missingTargets = ref([])
     const metrics = ref({ checks: {}, syncs: { success: 0, error: 0 }, last_sync_timestamp: 0 })
     const history = ref([])
 
@@ -96,6 +98,15 @@ const app = createApp({
       if (p >= 90) return 'queue-critical'
       if (p >= 70) return 'queue-warn'
       return 'queue-ok'
+    })
+    const syncStatusText = computed(() => {
+      if (isSyncing.value) return '同步中...'
+      if (syncStatus.value === 'warning') return '配置异常'
+      return '同步完成'
+    })
+    const syncStatusClass = computed(() => {
+      if (isSyncing.value || syncStatus.value === 'warning') return 'tag-warn'
+      return 'tag-ok'
     })
 
     // Sign key masking and copy
@@ -152,6 +163,7 @@ const app = createApp({
         totalLeafCount.value = d.total_leaf_count || 0
         feeTypeCount.value = d.fee_type_count || 0
         isSyncing.value = !!d.is_syncing
+        syncStatus.value = d.sync_status || (isSyncing.value ? 'syncing' : 'ok')
         lastSyncAt.value = formatSyncTime(d.last_sync_at)
         syncElapsed.value = isSyncing.value ? formatSeconds(d.sync_elapsed_sec) : ''
         intervalMinutes.value = d.interval_minutes || 0
@@ -160,6 +172,7 @@ const app = createApp({
         queuePending.value = d.queue?.pending || 0
         queueSize.value = d.queue?.capacity || 0
         targets.value = d.targets || []
+        missingTargets.value = d.missing_targets || []
         if (d.metrics) metrics.value = d.metrics
       } catch (e) { /* ignore */ }
     }
@@ -583,8 +596,8 @@ const app = createApp({
       // Page
       currentPage, switchPage,
       // Overview
-      version, totalLeafCount, feeTypeCount, isSyncing, lastSyncAt, syncElapsed, intervalMinutes,
-      queuePending, queueSize, memoryMB, goroutines, targets, metrics, history,
+      version, totalLeafCount, feeTypeCount, isSyncing, syncStatus, syncStatusText, syncStatusClass, lastSyncAt, syncElapsed, intervalMinutes,
+      queuePending, queueSize, memoryMB, goroutines, targets, missingTargets, metrics, history,
       // Sync
       syncing, syncMsg, doSync,
       // Rules

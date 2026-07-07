@@ -151,6 +151,32 @@ func TestEvaluate_TwoTargets(t *testing.T) {
 	}
 }
 
+func TestEvaluate_MissingConfiguredBudgetTargetReportsID(t *testing.T) {
+	store := budget.NewStore()
+	store.MarkMissingTarget(budget.MissingTarget{
+		ID:     "MISSING_PROJECT_BUDGET",
+		Name:   "项目预算",
+		Reason: "配置的预算包 ID 未在合思预算列表中找到",
+	})
+
+	cfg := &types.RulesConfig{
+		Targets: []types.RuleTarget{{
+			ID:    "MISSING_PROJECT_BUDGET",
+			Name:  "项目预算",
+			Steps: []types.Step{{Action: "match_info_to_budget"}},
+		}},
+	}
+	e, _ := NewEngine(store, nil, cfg, nil)
+	action, comment := e.Evaluate(map[string]interface{}{})
+	if action != "refuse" {
+		t.Fatalf("expected refuse, got %s/%s", action, comment)
+	}
+	want := "单据 项目预算：配置的预算包不存在，ID=MISSING_PROJECT_BUDGET，原因=配置的预算包 ID 未在合思预算列表中找到"
+	if comment != want {
+		t.Fatalf("unexpected comment:\nwant: %s\n got: %s", want, comment)
+	}
+}
+
 func TestEvaluate_MultiLevelBudgetUsesChildDimID(t *testing.T) {
 	store := budget.NewStore()
 	tree := &budget.Tree{
@@ -187,11 +213,11 @@ func TestEvaluate_MultiLevelBudgetUsesChildDimID(t *testing.T) {
 	}
 	e, _ := NewEngine(store, nil, cfg, map[string]string{
 		"E_system_costcenter": "成本中心",
-		"u_费用类型档案":          "费用类型",
+		"u_费用类型档案":            "费用类型",
 	})
 	action, comment := e.Evaluate(map[string]interface{}{
 		"E_system_costcenter": "CC1",
-		"u_费用类型档案":          "F1",
+		"u_费用类型档案":            "F1",
 	})
 	if action != "accept" {
 		t.Fatalf("expected accept, got %s/%s", action, comment)
@@ -231,7 +257,7 @@ func TestSplitDetail_MergesFields(t *testing.T) {
 	units := []CheckUnit{{
 		Label: "单据",
 		Fields: map[string]interface{}{
-			"项目":    "FormProject",
+			"项目": "FormProject",
 			"details": []interface{}{
 				map[string]interface{}{
 					"项目": "DetailProject",
